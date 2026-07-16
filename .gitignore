@@ -1,0 +1,57 @@
+# --- existing rule ---
+__pycache__
+
+# --- Python caches / build artifacts ---
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# --- virtual envs ---
+.venv/
+venv/
+env/
+
+# --- editor / OS junk ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# --- generated / scratch ---
+/tmp/
+/out/
+*.log
+
+# --- excluded artifacts (must never ship in this repo) ---
+#
+# Weight and SDK-binary formats we never ship. The ONNX files
+# CURRENTLY checked in under controllers/model/**/*.onnx are
+# grandfathered pending owner sign-off (see THIRD_PARTY_NOTICES.md §2
+# and MODEL_CARD.md) — the exception below keeps them tracked while
+# still rejecting stray ONNX files added elsewhere in the tree.
+*.onnx
+!controllers/model/**/*.onnx
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.so
+*.dll
+*.dylib
+*.lib
+*.whl
+*.bag
+*.mcap

@@ -1,0 +1,100 @@
+PointfootCfg:
+  robot_variant: WF_TRON2A
+  xml_path: robot-description/WF_TRON2A/xml/robot.xml
+
+  loop_frequency: 500
+  init_state:
+    joint_names:
+      - "proximal_pitch_L"
+      - "proximal_roll_L"
+      - "proximal_yaw_L"
+      - "knee_L"
+      - "wheel_L"
+      - "proximal_pitch_R"
+      - "proximal_roll_R"
+      - "proximal_yaw_R"
+      - "knee_R"
+      - "wheel_R"
+    sensor_joint_names:
+      - "proximal_pitch_L"
+      - "proximal_roll_L"
+      - "proximal_yaw_L"
+      - "knee_L"
+      - "wheel_L"
+      - "proximal_pitch_R"
+      - "proximal_roll_R"
+      - "proximal_yaw_R"
+      - "knee_R"
+      - "wheel_R"
+    default_joint_angle:
+      proximal_pitch_L: 0.0
+      proximal_roll_L: 0.0
+      proximal_yaw_L: 0.0
+      knee_L: 0.0
+      wheel_L: 0.0
+      proximal_pitch_R: 0.0
+      proximal_roll_R: 0.0
+      proximal_yaw_R: 0.0
+      knee_R: 0.0
+      wheel_R: 0.0
+
+  control:
+    joint_control_modes:
+      - "position"
+      - "position"
+      - "position"
+      - "position"
+      - "velocity"
+      - "position"
+      - "position"
+      - "position"
+      - "position"
+      - "velocity"
+
+    leg_joint_stiffness: 159.67
+    leg_joint_damping: 10.16
+    light_joint_stiffness: 53.22
+    light_joint_damping: 3.39
+    wheel_joint_damping: 0.6
+    action_scale_pos: 0.25
+    action_scale_vel: 1.0
+    decimation: 10
+
+    leg_joint_torque_limit: 140.0
+    light_joint_torque_limit: 40.0
+    wheel_joint_torque_limit: 22.0
+
+  normalization:
+    clip_scales:
+      clip_observations: 100.0
+      clip_actions: 100.0
+
+  size:
+    actions_size: 10
+    policy_obs_size: 34
+    commands_obs_size: 3
+    encoder_input_size: 340
+    encoder_output_size: 3
+    policy_input_size: 40
+    obs_history_length: 10
+
+  commands:
+    max:
+      lin_vel_x: 0.7
+      lin_vel_y: 0.0
+      ang_vel_yaw: 1.0
+
+  gait:
+    enabled: false
+    frequency: 0.0
+    offset: 0.0
+    duration: 0.0
+    swing_height: 0.0
+
+  imu_orientation_offset:
+    roll: 0.0
+    pitch: 0.0
+    yaw: 0.0
+
+  stand_mode:
+    stand_duration: 1.0

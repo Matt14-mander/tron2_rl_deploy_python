@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# CODEOWNERS for tron2-rl-deploy-python
+#
+# Order matters: the LAST matching pattern wins for each file.
+# Replace the placeholder handles below with real GitHub logins before
+# enabling branch protection that requires code-owner review.
+
+# Default owners: repo maintainers
+*                                       @limx-tron2/maintainers
+
+# Open-source scaffolding & policy
+/LICENSE                                @limx-tron2/legal @limx-tron2/maintainers
+/NOTICE                                 @limx-tron2/legal @limx-tron2/maintainers
+/THIRD_PARTY_NOTICES.md                 @limx-tron2/legal @limx-tron2/maintainers
+/MODEL_CARD.md                          @limx-tron2/legal @limx-tron2/model
+/SECURITY.md                            @limx-tron2/safety @limx-tron2/robotics
+/CONTRIBUTING.md                        @limx-tron2/maintainers
+/CHANGELOG.md                           @limx-tron2/maintainers
+/README.md                              @limx-tron2/maintainers @limx-tron2/robotics
+
+# CI / templates
+/.github/                               @limx-tron2/maintainers
+
+# Documentation media (owner audit before merge)
+/doc/                                   @limx-tron2/content @limx-tron2/legal
+
+# Controller source — real-hardware code, review with robotics + safety
+/main.py                                @limx-tron2/robotics @limx-tron2/safety
+/controllers/                           @limx-tron2/robotics @limx-tron2/safety
+/controllers/__init__.py                @limx-tron2/robotics
+/controllers/SolefootController.py      @limx-tron2/robotics @limx-tron2/safety
+/controllers/WheelfootController.py     @limx-tron2/robotics @limx-tron2/safety
+
+# Model weights & their per-variant configuration — extra review for
+# provenance, redistribution, and training-data license.
+/controllers/model/                     @limx-tron2/model @limx-tron2/legal
+/controllers/model/*/policy.onnx        @limx-tron2/model @limx-tron2/legal @limx-tron2/safety
+/controllers/model/*/encoder.onnx       @limx-tron2/model @limx-tron2/legal @limx-tron2/safety
+/controllers/model/*/params.yaml        @limx-tron2/model @limx-tron2/robotics
+
+# LimX SDK submodule — pin changes require SDK owner sign-off
+/.gitmodules                            @limx-tron2/sdk @limx-tron2/legal
+/limxsdk-lowlevel/                      @limx-tron2/sdk

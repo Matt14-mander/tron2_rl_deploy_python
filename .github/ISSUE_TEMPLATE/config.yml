@@ -1,0 +1,13 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability or robot-safety report
+    url: mailto:contact@limxdynamics.com
+    about: >
+      Do NOT open a public issue for security or robot-safety reports.
+      Email contact@limxdynamics.com; see SECURITY.md for the full
+      policy, including the real-hardware safety notice.
+  - name: General questions
+    url: https://github.com/limx-tron2/tron2-rl-deploy-python/discussions
+    about: >
+      Use Discussions for how-to questions, sim2real integration help,
+      or joystick / SDK setup that is not yet a defect.
