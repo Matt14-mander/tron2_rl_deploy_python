@@ -7,7 +7,6 @@
 
 # tron2-rl-deploy-python
 
-[English](README.md) | [中文](README_zh-CN.md)
 
 > **Distribution.** The primary public distribution point for this
 > repository is GitHub:
