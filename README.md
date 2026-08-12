@@ -14,8 +14,8 @@
 > the GitHub repository.
 
 Reinforcement-learning **deployment / inference** stack (Python) for
-the TRON2A humanoid — Sole-Foot (`SF_TRON2A`) and Wheel-Foot
-(`WF_TRON2A`) variants. Loads ONNX policies via `onnxruntime` and
+the TRON2A humanoid — Sole-Foot (`SF_TRON2A`), Wheel-Foot
+(`WF_TRON2A`), and dual-arm Sole-Foot (`DA_SF_TRON2A`) variants. Loads ONNX policies via `onnxruntime` and
 drives joint targets through the LimX low-level SDK, either against
 the MuJoCo simulator or against a physical robot.
 
@@ -31,8 +31,8 @@ SPDX identifier: `Apache-2.0`.
   `limxsdk-lowlevel` submodule, Python runtime dependencies
   (`onnxruntime`, `numpy`, `scipy`, `pyyaml`, `pygame`), and
   documentation media.
-- [`MODEL_CARD.md`](MODEL_CARD.md) — model card for the four ONNX
-  files under `controllers/model/`.
+- [`MODEL_CARD.md`](MODEL_CARD.md) — model card for the four existing
+  SF/WF ONNX files; the DA-SF files still require a model-card update.
 - [`SECURITY.md`](SECURITY.md) — how to report a vulnerability,
   plus the real-hardware safety notice.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev setup (`pip`, `ruff`),
@@ -46,10 +46,12 @@ SPDX identifier: `Apache-2.0`.
 
 - Python controller entry point (`main.py`) and per-variant
   controllers (`controllers/SolefootController.py`,
-  `controllers/WheelfootController.py`).
+  `controllers/WheelfootController.py`, and
+  `controllers/DASFController.py`).
 - Runtime configuration (`controllers/model/*/params.yaml`).
-- Four ONNX inference blobs (`policy.onnx`, `encoder.onnx` for
-  `SF_TRON2A` and `WF_TRON2A`) — **pending provenance sign-off**;
+- Six ONNX inference blobs (`policy.onnx`, `encoder.onnx` for
+  `SF_TRON2A`, `WF_TRON2A`, and `DA_SF_TRON2A`) — **pending
+  provenance sign-off and a DA-SF model-card update**;
   see [`MODEL_CARD.md`](MODEL_CARD.md) and
   [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) §2.
 - Vendor SDK **submodule reference** (`limxsdk-lowlevel/`) —
@@ -77,19 +79,22 @@ SPDX identifier: `Apache-2.0`.
   not.
 
 > **Real-hardware notice.** This is **not a simulation-only demo**.
-> `main.py` opens an SDK connection to whatever IP you pass, and the
-> controller writes joint torques that a real robot will execute. Read
+> For SF/WF, `main.py` opens an SDK connection to whatever IP you pass,
+> and the controller writes joint torques that a real robot will execute.
+> The current DA-SF controller targets the dual-channel MROS simulator. Read
 > [`SECURITY.md`](SECURITY.md#real-hardware-safety-notice) before you
 > point this code at a physical machine.
 
 ## 1. Directory layout
 
 - `main.py`: controller entry point (auto-selects the SF / WF
-  controller based on `ROBOT_TYPE`).
+  / DA-SF controller based on `ROBOT_TYPE`).
 - `controllers/SolefootController.py`: `SF_TRON2A` inference and
   control logic.
 - `controllers/WheelfootController.py`: `WF_TRON2A` inference and
   control logic.
+- `controllers/DASFController.py`: `DA_SF_TRON2A` dual-channel MROS
+  inference and control logic for `simulator_da_sf.py`.
 - `controllers/model/<ROBOT_TYPE>/`: per-variant model and
   configuration directory.
 - `limxsdk-lowlevel/`: LimX SDK sources and examples.
@@ -127,6 +132,9 @@ Model files must be placed per robot variant at:
 - `controllers/model/WF_TRON2A/policy.onnx`
 - `controllers/model/WF_TRON2A/encoder.onnx`
 - `controllers/model/WF_TRON2A/params.yaml`
+- `controllers/model/DA_SF_TRON2A/policy.onnx`
+- `controllers/model/DA_SF_TRON2A/encoder.onnx`
+- `controllers/model/DA_SF_TRON2A/params.yaml`
 
 ## 4. Running the controller
 
@@ -136,6 +144,7 @@ Model files must be placed per robot variant at:
 cd tron2-rl-deploy-python
 export ROBOT_TYPE=SF_TRON2A
 # or: export ROBOT_TYPE=WF_TRON2A
+# or: export ROBOT_TYPE=DA_SF_TRON2A
 ```
 
 ### Step 2: Launch the controller
@@ -168,19 +177,39 @@ Make sure the simulator side and the controller side use the same
 
 We recommend starting the simulator first, then the controller.
 
+For DA-SF, start `tron2-mujoco-sim/simulator_da_sf.py`, then run:
+
+```bash
+export ROBOT_TYPE=DA_SF_TRON2A
+python3 main.py
+```
+
+DA-SF motor state, commands, and IMU use lower-body and `did_upbody` MROS
+topics. The controller reads an F710 directly through pygame by default and
+falls back to MROS `/joystick` when pygame or a gamepad is unavailable. DA-SF
+does not use the optional LimX SDK IP argument. SF/WF continue to use the LimX
+SDK transport.
+
 ## 6. Gamepad control notes
 
 - `L1 + Y`: switch to WALK
 - `L1 + X`: switch back to IDLE
-- `R1`: clear velocity command
+- `R1`: clear velocity command and policy history
 
-- Open a Bash terminal.
+Connect the F710 in `X` mode and run `main.py`. A startup message containing
+`Direct joystick ready: Logitech Gamepad F710` confirms direct input, and
+`robot-joystick` is not needed.
 
-- Run robot-joystick:
+If startup instead reports `Joystick source: MROS /joystick`, run the fallback
+publisher in another terminal:
 
-  ```
-  ./pointfoot-mujoco-sim/robot-joystick/robot-joystick
-  ```
+```
+../tron2-mujoco-sim/robot-joystick/robot-joystick
+```
+
+After the controller reaches its default pose, press `L1 + Y`. The three
+joystick axes are scaled by `commands.max` in
+`controllers/model/DA_SF_TRON2A/params.yaml`.
 
 ## 7. Screenshots / GIFs
 

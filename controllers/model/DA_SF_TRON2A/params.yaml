@@ -1,0 +1,246 @@
+PointfootCfg:
+  robot_variant: DA_SF_TRON2A
+  xml_path: robot-description/tron2/DA_SF/xml/robot.xml
+
+  loop_frequency: 200
+  init_state:
+    joint_names:
+      - proximal_pitch_L
+      - proximal_roll_L
+      - proximal_yaw_L
+      - knee_L
+      - ankle_pitch_L
+      - proximal_pitch_R
+      - proximal_roll_R
+      - proximal_yaw_R
+      - knee_R
+      - ankle_pitch_R
+      - proximal_pitch_L_U
+      - proximal_roll_L_U
+      - proximal_yaw_L_U
+      - elbow_L_U
+      - wrist_yaw_L_U
+      - wrist_pitch_L_U
+      - wrist_roll_L_U
+      - proximal_pitch_R_U
+      - proximal_roll_R_U
+      - proximal_yaw_R_U
+      - elbow_R_U
+      - wrist_yaw_R_U
+      - wrist_pitch_R_U
+      - wrist_roll_R_U
+      - head_yaw
+      - head_pitch
+    policy_joint_names:
+      - proximal_pitch_L
+      - proximal_roll_L
+      - proximal_yaw_L
+      - knee_L
+      - ankle_pitch_L
+      - proximal_pitch_R
+      - proximal_roll_R
+      - proximal_yaw_R
+      - knee_R
+      - ankle_pitch_R
+      - proximal_pitch_L_U
+      - proximal_roll_L_U
+      - proximal_yaw_L_U
+      - elbow_L_U
+      - wrist_roll_L_U
+      - proximal_pitch_R_U
+      - proximal_roll_R_U
+      - proximal_yaw_R_U
+      - elbow_R_U
+      - wrist_roll_R_U
+
+    default_joint_angle:
+      proximal_pitch_L: 0.0
+      proximal_roll_L: 0.0
+      proximal_yaw_L: 0.0
+      knee_L: 0.0
+      ankle_pitch_L: 0.0
+      proximal_pitch_R: 0.0
+      proximal_roll_R: 0.0
+      proximal_yaw_R: 0.0
+      knee_R: 0.0
+      ankle_pitch_R: 0.0
+      proximal_pitch_L_U: 0.0
+      proximal_roll_L_U: 2.8797932657906435
+      proximal_yaw_L_U: 0.0
+      elbow_L_U: 0.0
+      wrist_yaw_L_U: 0.0
+      wrist_pitch_L_U: 0.0
+      wrist_roll_L_U: 0.0
+      proximal_pitch_R_U: 0.0
+      proximal_roll_R_U: -2.8797932657906435
+      proximal_yaw_R_U: 0.0
+      elbow_R_U: 0.0
+      wrist_yaw_R_U: 0.0
+      wrist_pitch_R_U: 0.0
+      wrist_roll_R_U: 0.0
+      head_yaw: 0.0
+      head_pitch: 0.0
+
+  control:
+    joint_control_modes:
+      - position
+      - position
+      - position
+      - position
+      - position
+      - position
+      - position
+      - position
+      - position
+      - position
+      - position
+      - position
+      - position
+      - position
+      - position
+      - position
+      - position
+      - position
+      - position
+      - position
+      - position
+      - position
+      - position
+      - position
+      - position
+      - position
+
+    stiffness:
+      proximal_pitch_L: 159.67
+      proximal_roll_L: 159.67
+      proximal_yaw_L: 53.22
+      knee_L: 159.67
+      ankle_pitch_L: 53.22
+      proximal_pitch_R: 159.67
+      proximal_roll_R: 159.67
+      proximal_yaw_R: 53.22
+      knee_R: 159.67
+      ankle_pitch_R: 53.22
+      proximal_pitch_L_U: 159.67
+      proximal_roll_L_U: 159.67
+      proximal_yaw_L_U: 53.22
+      elbow_L_U: 53.22
+      wrist_yaw_L_U: 53.22
+      wrist_pitch_L_U: 53.22
+      wrist_roll_L_U: 53.22
+      proximal_pitch_R_U: 159.67
+      proximal_roll_R_U: 159.67
+      proximal_yaw_R_U: 53.22
+      elbow_R_U: 53.22
+      wrist_yaw_R_U: 53.22
+      wrist_pitch_R_U: 53.22
+      wrist_roll_R_U: 53.22
+      head_yaw: 53.22
+      head_pitch: 53.22
+    damping:
+      proximal_pitch_L: 10.16
+      proximal_roll_L: 10.16
+      proximal_yaw_L: 3.39
+      knee_L: 10.16
+      ankle_pitch_L: 3.39
+      proximal_pitch_R: 10.16
+      proximal_roll_R: 10.16
+      proximal_yaw_R: 3.39
+      knee_R: 10.16
+      ankle_pitch_R: 3.39
+      proximal_pitch_L_U: 10.16
+      proximal_roll_L_U: 10.16
+      proximal_yaw_L_U: 3.39
+      elbow_L_U: 3.39
+      wrist_yaw_L_U: 3.39
+      wrist_pitch_L_U: 3.39
+      wrist_roll_L_U: 3.39
+      proximal_pitch_R_U: 10.16
+      proximal_roll_R_U: 10.16
+      proximal_yaw_R_U: 3.39
+      elbow_R_U: 3.39
+      wrist_yaw_R_U: 3.39
+      wrist_pitch_R_U: 3.39
+      wrist_roll_R_U: 3.39
+      head_yaw: 3.39
+      head_pitch: 3.39
+    action_scale_pos:
+      proximal_pitch_L: 0.25
+      proximal_roll_L: 0.25
+      proximal_yaw_L: 0.25
+      knee_L: 0.25
+      ankle_pitch_L: 0.25
+      proximal_pitch_R: 0.25
+      proximal_roll_R: 0.25
+      proximal_yaw_R: 0.25
+      knee_R: 0.25
+      ankle_pitch_R: 0.25
+      proximal_pitch_L_U: 0.25
+      proximal_roll_L_U: 0.25
+      proximal_yaw_L_U: 0.25
+      elbow_L_U: 0.25
+      wrist_roll_L_U: 0.25
+      proximal_pitch_R_U: 0.25
+      proximal_roll_R_U: 0.25
+      proximal_yaw_R_U: 0.25
+      elbow_R_U: 0.25
+      wrist_roll_R_U: 0.25
+    action_scale_vel: 1.0
+    decimation: 4
+
+  normalization:
+    clip_scales:
+      clip_observations: 100.0
+      clip_actions: 100.0
+    obs_scales:
+      ang_vel: 0.25
+      dof_pos: 1.0
+      dof_vel: 0.05
+
+  size:
+    actions_size: 20
+    policy_obs_size: 68
+    commands_obs_size: 3
+    encoder_input_size: 680
+    encoder_output_size: 3
+    policy_input_size: 74
+    obs_history_length: 10
+
+  commands:
+    default:
+      lin_vel_x: 0.0
+      lin_vel_y: 0.0
+      ang_vel_yaw: 0.0
+    max:
+      lin_vel_x: 1.0
+      lin_vel_y: 0.5
+      ang_vel_yaw: 1.0
+
+  gait:
+    enabled: true
+    frequency: 1.0
+    offset: 0.5
+    duration: 0.56
+    swing_height: 0.092
+    period: 1.0
+    command_threshold: 0.1
+
+  imu_orientation_offset:
+    roll: 0.0
+    pitch: 0.0
+    yaw: 0.0
+
+  stand_mode:
+    stand_duration: 3.0
+
+  runtime:
+    state_timeout: 0.5
+    state_wait_timeout: 10.0
+
+  communication:
+    lower_cmd_topic: /motor/cmd
+    lower_state_topic: /motor/state
+    upper_cmd_topic: /did_upbody/motor/cmd
+    upper_state_topic: /did_upbody/motor/state
+    imu_topic: /ImuData
+    joystick_topic: /joystick

@@ -13,6 +13,18 @@ if __name__ == '__main__':
         print("\033[31mError: Please set the ROBOT_TYPE using 'export ROBOT_TYPE=<robot_type>'.\033[0m")
         sys.exit(1)
 
+    model_dir = f'{os.path.dirname(os.path.abspath(__file__))}/controllers/model'
+
+    if robot_type not in ("SF_TRON2A", "WF_TRON2A", "DA_SF_TRON2A"):
+        print(f"\033[31mError: unsupported ROBOT_TYPE='{robot_type}', expected SF_TRON2A, WF_TRON2A, or DA_SF_TRON2A\033[0m")
+        sys.exit(1)
+
+    # DA-SF uses one Python MROS node for motors, IMU, and /joystick.
+    if robot_type == "DA_SF_TRON2A":
+        controller = controllers.DASFController(model_dir, robot_type, False)
+        controller.run()
+        sys.exit(0)
+
     # Create a Robot instance of the specified type
     robot = Robot(RobotType.Tron2)
 
@@ -34,11 +46,8 @@ if __name__ == '__main__':
 
     # Create and run the controller
     if robot_type == "SF_TRON2A":
-        controller = controllers.SolefootController(f'{os.path.dirname(os.path.abspath(__file__))}/controllers/model', robot, robot_type, start_controller, use_pygame_joystick=use_pygame_joystick)
+        controller = controllers.SolefootController(model_dir, robot, robot_type, start_controller, use_pygame_joystick=use_pygame_joystick)
         controller.run()
     elif robot_type == "WF_TRON2A":
-        controller = controllers.WheelfootController(f'{os.path.dirname(os.path.abspath(__file__))}/controllers/model', robot, robot_type, start_controller, use_pygame_joystick=use_pygame_joystick)
+        controller = controllers.WheelfootController(model_dir, robot, robot_type, start_controller, use_pygame_joystick=use_pygame_joystick)
         controller.run()
-    else:
-        print(f"\033[31mError: unsupported ROBOT_TYPE='{robot_type}', expected SF_TRON2A or WF_TRON2A\033[0m")
-        sys.exit(1)
