@@ -82,6 +82,12 @@ class DASFPolicyConfig:
         self.policy_joint_names = list(init_state["policy_joint_names"])
         self._validate_joint_names()
         full_indices = {name: index for index, name in enumerate(self.full_joint_names)}
+        self.hardware_joint_zero = np.zeros(self.num_joints, dtype=np.float64)
+        self.hardware_joint_direction = np.ones(self.num_joints, dtype=np.float64)
+        self.hardware_joint_zero[full_indices["proximal_yaw_L"]] = -math.pi
+        self.hardware_joint_zero[full_indices["proximal_yaw_R"]] = math.pi
+        for name in ("knee_L", "ankle_pitch_L", "knee_R", "ankle_pitch_R"):
+            self.hardware_joint_direction[full_indices[name]] = -1.0
         self.policy_to_full = np.array(
             [full_indices[name] for name in self.policy_joint_names], dtype=np.int64
         )
@@ -280,6 +286,50 @@ def actions_to_full_targets(config, actions):
     return targets
 
 
+def hardware_to_policy_state(config, hardware_q, hardware_dq):
+    """Convert real-robot joint state to the coordinates used in training."""
+    hardware_q = np.asarray(hardware_q, dtype=np.float64)
+    hardware_dq = np.asarray(hardware_dq, dtype=np.float64)
+    expected_shape = (config.num_joints,)
+    if hardware_q.shape != expected_shape or hardware_dq.shape != expected_shape:
+        raise ValueError("Hardware joint state must contain 26 positions and velocities")
+    policy_q = config.hardware_joint_direction * (
+        hardware_q - config.hardware_joint_zero
+    )
+    policy_dq = config.hardware_joint_direction * hardware_dq
+    return policy_q, policy_dq
+
+
+def policy_targets_to_hardware(config, policy_targets):
+    """Convert policy-coordinate position targets to real-robot coordinates."""
+    policy_targets = np.asarray(policy_targets, dtype=np.float64)
+    if policy_targets.shape != (config.num_joints,):
+        raise ValueError("Policy targets must contain 26 joint positions")
+    return (
+        config.hardware_joint_direction * policy_targets
+        + config.hardware_joint_zero
+    )
+
+
+def hardware_joint_transform_enabled(environment=None):
+    """Enable the adapter for MROS hardware targets unless explicitly overridden."""
+    environment = os.environ if environment is None else environment
+    override = environment.get("DA_SF_HARDWARE_JOINT_TRANSFORM")
+    if override is not None:
+        normalized = override.strip().lower()
+        if normalized in ("1", "true", "yes", "on"):
+            return True
+        if normalized in ("0", "false", "no", "off"):
+            return False
+        raise ValueError(
+            "DA_SF_HARDWARE_JOINT_TRANSFORM must be 0/1 or false/true"
+        )
+    return any(
+        environment.get(name)
+        for name in ("MROS_AGENT_IP", "MROS_AGENT_URI", "MROS_IP_LIST")
+    )
+
+
 class DASFController:
     """DA-SF ONNX policy controller using the simulator's two MROS channels."""
 
@@ -311,6 +361,7 @@ class DASFController:
                 f"expected '{robot_type}'"
             )
         self.config = config
+        self.use_hardware_joint_transform = hardware_joint_transform_enabled()
         if command is None:
             command = config.default_command
         self.command = np.asarray(command, dtype=np.float64)
@@ -397,6 +448,10 @@ class DASFController:
         self._setup_pygame_joystick()
         print(f"Loaded DA-SF parameters from {config.path}")
         print(f"Loaded DA-SF models from {self.model_dir}")
+        coordinate_source = (
+            "real hardware" if self.use_hardware_joint_transform else "simulation"
+        )
+        print(f"Joint coordinates: {coordinate_source}")
         print("MROS topics ready: lower + did_upbody, base IMU")
         joystick_source = (
             "direct pygame/F710" if self._pygame_enabled else "MROS /joystick"
@@ -642,6 +697,8 @@ class DASFController:
             dq = np.concatenate((self._lower_dq, self._upper_dq))
             quaternion = self._quaternion.copy()
             gyro = self._gyro.copy()
+        if self.use_hardware_joint_transform:
+            q, dq = hardware_to_policy_state(self.config, q, dq)
         return q, dq, quaternion, gyro
 
     @staticmethod
@@ -659,6 +716,8 @@ class DASFController:
 
     def _publish_targets(self, targets, kp=None, kd=None):
         targets = np.asarray(targets, dtype=np.float64)
+        if self.use_hardware_joint_transform:
+            targets = policy_targets_to_hardware(self.config, targets)
         if kp is None:
             kp = self.config.kp
         if kd is None:

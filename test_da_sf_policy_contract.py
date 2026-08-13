@@ -104,6 +104,141 @@ class DASFPolicyContractTest(unittest.TestCase):
         self.assertAlmostEqual(self.config.default_q[11], math.radians(165.0))
         self.assertAlmostEqual(self.config.default_q[18], math.radians(-165.0))
 
+    def test_hardware_joint_zero_maps_to_simulation_zero(self):
+        hardware_q = np.zeros(self.config.num_joints)
+        hardware_dq = np.arange(self.config.num_joints, dtype=np.float64)
+        hardware_q[2] = -math.pi
+        hardware_q[7] = math.pi
+        hardware_q[[3, 4, 8, 9]] = [0.2, -0.3, 0.4, -0.5]
+
+        policy_q, policy_dq = controller.hardware_to_policy_state(
+            self.config, hardware_q, hardware_dq
+        )
+
+        np.testing.assert_allclose(policy_q[[2, 7]], [0.0, 0.0])
+        np.testing.assert_allclose(policy_q[[3, 4, 8, 9]], [-0.2, 0.3, -0.4, 0.5])
+        np.testing.assert_allclose(
+            policy_dq[[3, 4, 8, 9]], -hardware_dq[[3, 4, 8, 9]]
+        )
+
+    def test_hardware_joint_transform_round_trip(self):
+        policy_targets = np.linspace(-0.8, 0.8, self.config.num_joints)
+        hardware_targets = controller.policy_targets_to_hardware(
+            self.config, policy_targets
+        )
+        recovered_targets, _ = controller.hardware_to_policy_state(
+            self.config, hardware_targets, np.zeros(self.config.num_joints)
+        )
+
+        np.testing.assert_allclose(recovered_targets, policy_targets)
+        self.assertAlmostEqual(hardware_targets[2], policy_targets[2] - math.pi)
+        self.assertAlmostEqual(hardware_targets[7], policy_targets[7] + math.pi)
+        np.testing.assert_allclose(
+            hardware_targets[[3, 4, 8, 9]], -policy_targets[[3, 4, 8, 9]]
+        )
+
+    def test_hardware_transform_detection_can_be_overridden(self):
+        self.assertTrue(
+            controller.hardware_joint_transform_enabled(
+                {"MROS_IP_LIST": "10.192.1.x"}
+            )
+        )
+        self.assertFalse(
+            controller.hardware_joint_transform_enabled(
+                {
+                    "MROS_IP_LIST": "10.192.1.x",
+                    "DA_SF_HARDWARE_JOINT_TRANSFORM": "0",
+                }
+            )
+        )
+
+    def test_controller_applies_transform_to_state_and_targets(self):
+        class FakePublisher:
+            def __init__(self):
+                self.messages = []
+
+            def publish(self, message):
+                self.messages.append(message)
+
+        policy = controller.DASFController.__new__(controller.DASFController)
+        policy.config = self.config
+        policy.state_timeout = 1.0
+        policy.use_hardware_joint_transform = True
+        policy._lock = threading.Lock()
+        expected_policy_q = self.config.default_q.copy()
+        expected_policy_q[[2, 3, 4, 7, 8, 9]] += [0.1, 0.2, -0.3, -0.4, 0.5, -0.6]
+        expected_policy_dq = np.zeros(self.config.num_joints)
+        expected_policy_dq[[2, 3, 4, 7, 8, 9]] = [0.7, -0.8, 0.9, -1.0, 1.1, -1.2]
+        hardware_q = controller.policy_targets_to_hardware(
+            self.config, expected_policy_q
+        )
+        hardware_dq = (
+            self.config.hardware_joint_direction * expected_policy_dq
+        )
+        policy._lower_q = hardware_q[: self.config.num_lower].copy()
+        policy._lower_dq = hardware_dq[: self.config.num_lower].copy()
+        policy._upper_q = hardware_q[self.config.num_lower :].copy()
+        policy._upper_dq = hardware_dq[self.config.num_lower :].copy()
+        policy._quaternion = np.array([1.0, 0.0, 0.0, 0.0])
+        policy._gyro = np.zeros(3)
+        policy._lower_stamp = policy._upper_stamp = policy._imu_stamp = (
+            controller.time.monotonic()
+        )
+        policy.pub_lower = FakePublisher()
+        policy.pub_upper = FakePublisher()
+
+        policy_q, policy_dq, _, _ = policy._snapshot()
+        np.testing.assert_allclose(policy_q, expected_policy_q)
+        np.testing.assert_allclose(policy_dq, expected_policy_dq)
+
+        observation = controller.build_policy_observation(
+            self.config,
+            policy_q,
+            policy_dq,
+            gyro=np.zeros(3),
+            quaternion=[1.0, 0.0, 0.0, 0.0],
+            last_action=np.zeros(self.config.num_actions),
+            command=np.zeros(3),
+            policy_elapsed=0.0,
+        )
+        expected_position_observation = (
+            expected_policy_q[self.config.policy_to_full]
+            - self.config.default_q[self.config.policy_to_full]
+        ) * self.config.dof_pos_scale
+        expected_velocity_observation = (
+            expected_policy_dq[self.config.policy_to_full]
+            * self.config.dof_vel_scale
+        )
+        np.testing.assert_allclose(
+            observation[6 : 6 + self.config.num_actions],
+            expected_position_observation,
+        )
+        np.testing.assert_allclose(
+            observation[
+                6 + self.config.num_actions : 6 + 2 * self.config.num_actions
+            ],
+            expected_velocity_observation,
+        )
+
+        actions = np.linspace(-0.5, 0.5, self.config.num_actions)
+        policy_targets = controller.actions_to_full_targets(self.config, actions)
+        expected_hardware_targets = controller.policy_targets_to_hardware(
+            self.config, policy_targets
+        )
+        policy._publish_targets(policy_targets)
+        published_targets = np.concatenate(
+            (policy.pub_lower.messages[0].q, policy.pub_upper.messages[0].q)
+        )
+        np.testing.assert_allclose(published_targets, expected_hardware_targets)
+        np.testing.assert_allclose(
+            policy.pub_lower.messages[0].v,
+            np.zeros(self.config.num_lower),
+        )
+        np.testing.assert_allclose(
+            policy.pub_lower.messages[0].tau,
+            np.zeros(self.config.num_lower),
+        )
+
     def test_robot_joystick_starts_scales_resets_and_stops_policy(self):
         policy = controller.DASFController.__new__(controller.DASFController)
         policy.config = self.config
