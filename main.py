@@ -1,13 +1,25 @@
+import argparse
 import os
 import sys
-import limxsdk.robot.Robot as Robot
-import limxsdk.robot.RobotType as RobotType
 import controllers as controllers
+# 注意：limxsdk 延迟到 SF/WF 分支内 import——顶层 import 会抢先把 pip 旧版载入
+# sys.modules，使 DA_SF --sdk 模式无法优先解析到新版（LIMXSDK_PYTHON_DIR/子仓）。
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="TRON2 policy controller entry")
+    parser.add_argument("robot_ip", nargs="?", default="127.0.0.1",
+                        help="robot ip (default 127.0.0.1)")
+    comm_group = parser.add_mutually_exclusive_group()
+    comm_group.add_argument("--mros", dest="comm", action="store_const", const="mros",
+                            help="DA_SF: 运控通道走 mrospy 直连（默认）")
+    comm_group.add_argument("--sdk", dest="comm", action="store_const", const="sdk",
+                            help="DA_SF: 运控通道走 limxsdk Centaur controller 端")
+    parser.set_defaults(comm="mros")
+    args = parser.parse_args()
+
     # Get the robot type from the environment variable
     robot_type = os.getenv("ROBOT_TYPE")
-    
+
     # Check if the ROBOT_TYPE environment variable is set, otherwise exit with an error
     if not robot_type:
         print("\033[31mError: Please set the ROBOT_TYPE using 'export ROBOT_TYPE=<robot_type>'.\033[0m")
@@ -19,24 +31,22 @@ if __name__ == '__main__':
         print(f"\033[31mError: unsupported ROBOT_TYPE='{robot_type}', expected SF_TRON2A, WF_TRON2A, or DA_SF_TRON2A\033[0m")
         sys.exit(1)
 
-    # DA-SF uses one Python MROS node for motors, IMU, and /joystick.
+    # DA-SF: one Python node; motion channels selectable (--mros default | --sdk),
+    # /joystick stays on MROS either way. --sdk uses ROBOT_IP env or robot_ip arg.
     if robot_type == "DA_SF_TRON2A":
-        controller = controllers.DASFController(model_dir, robot_type, False)
+        if args.comm == "sdk":
+            os.environ.setdefault("ROBOT_IP", args.robot_ip)
+        controller = controllers.DASFController(model_dir, robot_type, False, comm=args.comm)
         controller.run()
         sys.exit(0)
 
     # Create a Robot instance of the specified type
+    import limxsdk.robot.Robot as Robot
+    import limxsdk.robot.RobotType as RobotType
     robot = Robot(RobotType.Tron2)
 
-    # Default IP address for the robot
-    robot_ip = "127.0.0.1"
-    
-    # Check if command-line argument is provided for robot IP
-    if len(sys.argv) > 1:
-        robot_ip = sys.argv[1]
-
     # Initialize the robot with the provided IP address
-    if not robot.init(robot_ip):
+    if not robot.init(args.robot_ip):
         sys.exit()
 
     use_pygame_joystick = True
