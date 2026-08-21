@@ -21,8 +21,8 @@ reproducible, and legally clean.
 
 ## Ways to contribute
 
-- Bug fixes in the SF / WF controllers (observation, action, safety
-  clamps, IO plumbing).
+- Bug fixes in the SF / WF / DASF controllers (observation, action,
+  safety clamps, IO plumbing).
 - Simulator-side improvements (dry-run mode, sim-only launcher).
 - Documentation, verification snippets, joystick / hardware notes.
 - CI / lint / packaging.
@@ -76,14 +76,16 @@ syntax checks.
 
 ```
 tron2-rl-deploy-python/
-├── main.py                       # entry point (selects SF/WF by ROBOT_TYPE)
+├── main.py                       # entry point (selects SF/WF/DASF by ROBOT_TYPE)
 ├── controllers/
 │   ├── __init__.py
 │   ├── SolefootController.py     # SF_TRON2A inference + control
 │   ├── WheelfootController.py    # WF_TRON2A inference + control
+│   ├── DASFController.py         # DASF_TRON2A inference + control
 │   └── model/
 │       ├── SF_TRON2A/            # policy.onnx, encoder.onnx, params.yaml
-│       └── WF_TRON2A/            # policy.onnx, encoder.onnx, params.yaml
+│       ├── WF_TRON2A/            # policy.onnx, encoder.onnx, params.yaml
+│       └── DASF_TRON2A/          # policy.onnx, encoder.onnx, params.yaml
 ├── limxsdk-lowlevel/             # git submodule (vendor SDK, pinned)
 ├── doc/                          # README media (deploy.jpg, GIFs)
 ├── LICENSE, NOTICE, THIRD_PARTY_NOTICES.md, MODEL_CARD.md,
@@ -93,7 +95,7 @@ tron2-rl-deploy-python/
 
 ## Model files and provenance
 
-The four checked-in ONNX files under `controllers/model/*/` are the
+The six checked-in ONNX files under `controllers/model/*/` are the
 single largest legal risk in this repository (see the review report
 and [`MODEL_CARD.md`](MODEL_CARD.md)).
 

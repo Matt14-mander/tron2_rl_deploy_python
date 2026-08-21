@@ -21,17 +21,18 @@ applicable licenses and re-distribution terms.
 
 | Path | Kind | License | Notes |
 |------|------|---------|-------|
-| `main.py` | Python entry point | Apache-2.0 | Selects SF/WF controller by `ROBOT_TYPE`. |
+| `main.py` | Python entry point | Apache-2.0 | Selects SF/WF/DASF controller by `ROBOT_TYPE`. |
 | `controllers/__init__.py` | Python package init | Apache-2.0 | |
 | `controllers/SolefootController.py` | Python control code | Apache-2.0 | Real-hardware controller: loads ONNX, drives q / dq / tau / Kp / Kd. |
 | `controllers/WheelfootController.py` | Python control code | Apache-2.0 | Real-hardware controller: loads ONNX, drives q / dq / tau / Kp / Kd. |
+| `controllers/DASFController.py` | Python control code | Apache-2.0 | Dual-channel Centaur SDK controller: loads ONNX, drives lower/upper-body q / dq / tau / Kp / Kd. |
 | `controllers/model/*/params.yaml` | Configuration | Apache-2.0 ⚠ TO CONFIRM | Confirm no per-serial calibration constants are embedded. |
 
 ---
 
 ## 2. Checked-in model weights (ONNX)
 
-This repository ships **four ONNX files** under `controllers/model/`.
+This repository ships **six ONNX files** under `controllers/model/`.
 They are **binary weights, not source**, and their license status is
 independent of the Apache-2.0 license on the surrounding code.
 
@@ -41,13 +42,18 @@ independent of the Apache-2.0 license on the surrounding code.
 | `controllers/model/SF_TRON2A/encoder.onnx` | 588 998 | `5f7e2b8865fda7c284f0dd98b79f5c1d78935c83cbf43bf311d768154937111e` | [SF_TRON2A / encoder](MODEL_CARD.md#sf_tron2aencoderonnx) | ⚠ TO CONFIRM | ⚠ TO CONFIRM | ⚠ TO CONFIRM |
 | `controllers/model/WF_TRON2A/policy.onnx`  | 770 148 | `3000df452681056738a15b46fa67f4f8436b34bbb6dcc6b22fa08b1b1f8dd071` | [WF_TRON2A / policy](MODEL_CARD.md#wf_tron2apolicyonnx)  | ⚠ TO CONFIRM | ⚠ TO CONFIRM | ⚠ TO CONFIRM |
 | `controllers/model/WF_TRON2A/encoder.onnx` | 503 276 | `507d0630d78873f7aabfeab4eae9d7669610d709fcc903c4296d1908da54b3e7` | [WF_TRON2A / encoder](MODEL_CARD.md#wf_tron2aencoderonnx) | ⚠ TO CONFIRM | ⚠ TO CONFIRM | ⚠ TO CONFIRM |
+| `controllers/model/DASF_TRON2A/policy.onnx`  | 863 234 | `473bae82c4b09420f1013c37b234ab7475c0183b0e7f79df50c72f744b5fa0ca` | [DASF_TRON2A / policy](MODEL_CARD.md#dasf_tron2apolicyonnx)  | ⚠ TO CONFIRM | ⚠ TO CONFIRM | ⚠ TO CONFIRM |
+| `controllers/model/DASF_TRON2A/encoder.onnx` | 852 848 | `31ff1f3f756298421c3d88e075103e5e9ada560573200f1ab42644ca7d14be51` | [DASF_TRON2A / encoder](MODEL_CARD.md#dasf_tron2aencoderonnx) | ⚠ TO CONFIRM | ⚠ TO CONFIRM | ⚠ TO CONFIRM |
 
-Evidence collected 2026-07-16: SHA-256 digests computed by `sha256sum`
-on the tracked working-tree files. All four ONNX blobs are
+Evidence for SF/WF was collected 2026-07-16; DASF size and SHA-256
+were collected 2026-08-20. Digests were computed by `sha256sum` on
+the working-tree files. The four SF/WF ONNX blobs are
 **byte-identical** to the corresponding files in the sibling
 `tron2-rl-deploy-ros/tron2_controllers/config/{SF,WF}_TRON2A/policy/`
 paths — this is one set of models under two locations. Any owner
-decision must be applied to both repos consistently. Reproduce with:
+decision for those four files must be applied to both repos
+consistently. No sibling-repository equivalence is asserted for the
+DASF files. Reproduce all six digests with:
 
 ```bash
 sha256sum controllers/model/*/policy.onnx controllers/model/*/encoder.onnx
@@ -101,7 +107,7 @@ install them (`pip install …`) to run `main.py`.
 
 | Package | Purpose | License | Notes |
 |---------|---------|---------|-------|
-| **onnxruntime** | ONNX inference for policy / encoder | MIT | Critical dependency: without it, `SolefootController` / `WheelfootController` cannot load `policy.onnx` / `encoder.onnx`. Users install `onnxruntime` (CPU) or `onnxruntime-gpu` per their platform. |
+| **onnxruntime** | ONNX inference for policy / encoder | MIT | Critical dependency: without it, the SF/WF/DASF controllers cannot load `policy.onnx` / `encoder.onnx`. Users install `onnxruntime` (CPU) or `onnxruntime-gpu` per their platform. |
 | numpy | Array math in the observation / action pipeline | BSD-3-Clause | |
 | scipy | `scipy.spatial.transform.Rotation` (IMU quat → rotation) | BSD-3-Clause | |
 | PyYAML | Load `controllers/model/*/params.yaml` | MIT | |
@@ -149,7 +155,7 @@ identifiers, or non-public hardware.
 - No SDK binaries (`.so`, `.dll`, `.dylib`, `.lib`, `.whl`) — SDK is
   installed by the user from a vendor wheel.
 - No PyTorch / training checkpoints (`.pt`, `.pth`, `.ckpt`) — only the
-  four ONNX inference blobs listed in §2.
+   six ONNX inference blobs listed in §2.
 - No factory calibration values or per-serial calibration files.
 - No motion / bag / trajectory data.
 - No firmware.

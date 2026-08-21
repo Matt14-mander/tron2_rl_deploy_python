@@ -12,7 +12,7 @@
 > LimX 内部 GitLab 为镜像；Issue、PR 与安全报告请提交到 GitHub。
 
 面向 TRON2A 人形机器人（足底 `SF_TRON2A`、轮足 `WF_TRON2A` 与
-双臂足式 `DA_SF_TRON2A` 三种形态）的
+双臂足式 `DASF_TRON2A` 三种形态）的
 强化学习**部署 / 推理**栈（Python 实现）。通过 `onnxruntime` 加载 ONNX
 策略，经 LimX 底层 SDK 下发关节目标，既可对接 MuJoCo 仿真，也可用于实机部署。
 
@@ -25,8 +25,8 @@
 - [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) — 已签入 ONNX
   权重、`limxsdk-lowlevel` 子模块、Python 运行依赖（`onnxruntime`、
   `numpy`、`scipy`、`pyyaml`、`pygame`）以及文档媒体的逐项来源说明。
-- [`MODEL_CARD.md`](MODEL_CARD.md) — `controllers/model/` 下原有四个
-  SF/WF ONNX 模型的模型卡；DA-SF 模型信息仍需补充。
+- [`MODEL_CARD.md`](MODEL_CARD.md) — `controllers/model/` 下全部六个
+  SF/WF/DASF ONNX 模型的模型卡。
 - [`SECURITY.md`](SECURITY.md) — 漏洞上报流程及实机安全须知。
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — 开发环境（`pip`、`ruff`）、
   验证步骤、DCO 签署与模型来源规则。
@@ -43,8 +43,8 @@
   `controllers/DASFController.py`)。
 - 运行时配置 (`controllers/model/*/params.yaml`)。
 - 六个 ONNX 推理文件（`SF_TRON2A`、`WF_TRON2A` 与
-  `DA_SF_TRON2A` 的 `policy.onnx`、`encoder.onnx`）——**来源确认待签署，
-  且 DA-SF 模型卡待补充**，详见
+  `DASF_TRON2A` 的 `policy.onnx`、`encoder.onnx`）——**来源确认待签署**，
+  详见
   [`MODEL_CARD.md`](MODEL_CARD.md) 及
   [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) 第 2 节。
 - 供应商 SDK **子模块引用** (`limxsdk-lowlevel/`) ——
@@ -65,9 +65,9 @@
   作为文档示例的字面量 `10.192.1.2`，该情况已在该仓库的
   `SECURITY.md` 中声明；本仓库有意不含此类字面量。
 
-> **实机安全提示。** 本仓库**并非仅供仿真使用**。SF/WF 模式下，`main.py`
+> **实机安全提示。** 本仓库**并非仅供仿真使用**。`main.py`
 > 会向您指定的 IP 打开 SDK 连接，控制器会下发关节力矩，真实机器人会实际执行。
-> 当前 DA-SF 控制器用于双通道 MROS 仿真。
+> DA-SF 通过 Centaur SDK 同时控制上下身通道。
 > 在将本代码指向物理设备之前，请务必阅读
 > [`SECURITY.md`](SECURITY.md#real-hardware-safety-notice)。
 
@@ -76,7 +76,7 @@
 - `main.py`：控制器入口程序（根据 `ROBOT_TYPE` 自动选择 SF/WF/DA-SF 控制器）。
 - `controllers/SolefootController.py`：`SF_TRON2A` 推理与控制逻辑。
 - `controllers/WheelfootController.py`：`WF_TRON2A` 推理与控制逻辑。
-- `controllers/DASFController.py`：`DA_SF_TRON2A` 双通道 MROS 推理与控制逻辑。
+- `controllers/DASFController.py`：`DASF_TRON2A` 推理与控制逻辑。
 - `controllers/model/<ROBOT_TYPE>/`：每种机型的模型与配置文件目录。
 - `limxsdk-lowlevel/`：LimX SDK 及示例代码。
 
@@ -113,9 +113,9 @@ pip install limxsdk-lowlevel/python3/aarch64/limxsdk-*-py3-none-any.whl
 - `controllers/model/WF_TRON2A/policy.onnx`
 - `controllers/model/WF_TRON2A/encoder.onnx`
 - `controllers/model/WF_TRON2A/params.yaml`
-- `controllers/model/DA_SF_TRON2A/policy.onnx`
-- `controllers/model/DA_SF_TRON2A/encoder.onnx`
-- `controllers/model/DA_SF_TRON2A/params.yaml`
+- `controllers/model/DASF_TRON2A/policy.onnx`
+- `controllers/model/DASF_TRON2A/encoder.onnx`
+- `controllers/model/DASF_TRON2A/params.yaml`
 
 ## 4. 运行控制器
 
@@ -125,7 +125,7 @@ pip install limxsdk-lowlevel/python3/aarch64/limxsdk-*-py3-none-any.whl
 cd tron2-rl-deploy-python
 export ROBOT_TYPE=SF_TRON2A
 或 export ROBOT_TYPE=WF_TRON2A
-或 export ROBOT_TYPE=DA_SF_TRON2A
+或 export ROBOT_TYPE=DASF_TRON2A
 ```
 
 ### Step 2: 启动控制器
@@ -156,17 +156,18 @@ python3 main.py <robot-ip>
 
 建议先启动仿真，再启动控制器。
 
-DA-SF 使用 `tron2-mujoco-sim/simulator_da_sf.py`，控制端仍通过统一入口启动：
+DA-SF 使用 `tron2-mujoco-sim/simulator.py`，控制端仍通过统一入口启动：
 
 ```bash
-export ROBOT_TYPE=DA_SF_TRON2A
+export ROBOT_TYPE=DASF_TRON2A
 python3 main.py
 ```
 
-DA-SF 的电机状态、命令和 IMU 均使用 MROS。控制器默认通过 pygame
-直接读取 F710；未安装 pygame 或未检测到手柄时，自动回退到 MROS
-`/joystick`。因此 DA-SF 不使用可选的 LimX SDK IP 参数，SF/WF 仍保持
-原有 LimX SDK 通信方式。
+DA-SF 的上下身电机状态、命令、IMU 和远端手柄均通过 Centaur SDK 收发。
+控制器默认通过 pygame 直接读取 F710；未安装 pygame 或未检测到手柄时，
+自动回退到 SDK `SensorJoy`。默认 IP `127.0.0.1` 连接本机仿真，指定非回环
+机器人 IP 时强制启用真机关节坐标变换（大腿 yaw 零位偏移、膝和踝 pitch
+方向反转）。本地回环 MuJoCo 不执行该变换。
 
 ## 6. 手柄控制说明
 
@@ -178,14 +179,14 @@ F710 背面切换到 `X` 模式并连接后，直接运行 `main.py`。启动日
 `Direct joystick ready: Logitech Gamepad F710` 表示已启用直连，不需要
 运行 `robot-joystick`。
 
-如果日志显示 `Joystick source: MROS /joystick`，再另开终端运行回退发布器：
+如果日志显示 `Joystick source: limxsdk SensorJoy`，可另开终端运行手柄发布器：
 
 ```
 ../tron2-mujoco-sim/robot-joystick/robot-joystick
 ```
 
 控制器完成默认姿态插值后，按 `L1 + Y` 启动策略。三个手柄轴按照
-`controllers/model/DA_SF_TRON2A/params.yaml` 中的 `commands.max` 缩放。
+`controllers/model/DASF_TRON2A/params.yaml` 中的 `commands.max` 缩放。
 
 ## 7. 效果展示
 

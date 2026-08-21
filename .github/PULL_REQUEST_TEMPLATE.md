@@ -9,7 +9,7 @@ Please fill in the sections below. Delete any that are not applicable.
 
 ## Type of change
 
-- [ ] `fix`     — corrects a defect in the SF / WF controller or entry point
+- [ ] `fix`     — corrects a defect in the SF / WF / DASF controller or entry point
 - [ ] `feat`    — new capability (dry-run mode, safety clamp, etc.)
 - [ ] `model`   — adds / replaces an ONNX weight file **(requires provenance — see below)**
 - [ ] `docs`    — README, THIRD_PARTY_NOTICES, MODEL_CARD, or CONTRIBUTING
@@ -20,6 +20,7 @@ Please fill in the sections below. Delete any that are not applicable.
 
 - [ ] `SF_TRON2A`
 - [ ] `WF_TRON2A`
+- [ ] `DASF_TRON2A`
 - [ ] Meta / repo-wide
 
 ## Verification

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""DA-SF policy controller for the dual-channel MuJoCo simulator."""
+"""DA-SF policy controller using the dual-channel Centaur SDK."""
 
+import ipaddress
 import math
 import os
 import threading
@@ -18,16 +19,6 @@ try:
     import pygame
 except ImportError:
     pygame = None
-
-try:
-    import mros
-    import mros.controller_msgs.msg.IMUData
-    import mros.controller_msgs.msg.JointCmd
-    import mros.controller_msgs.msg.JointState
-    import mros.sensor_msgs.msg.Joy
-except ImportError:
-    mros = None
-
 
 class DASFPolicyConfig:
     """Validated runtime configuration loaded from params.yaml."""
@@ -81,7 +72,7 @@ class DASFPolicyConfig:
         self.full_joint_names = list(init_state["joint_names"])
         self.policy_joint_names = list(init_state["policy_joint_names"])
         self._validate_joint_names()
-        # MROS 下发携带的关节名（线序真名 = config 短名 + "_Joint"，与仿真/真机
+        # SDK 下发携带的关节名（线序真名 = config 短名 + "_Joint"，与仿真/真机
         # state.names 一致）。CentaurSim 按 cmd.names 与 state.names 匹配校验，
         # 无名 cmd 会被 native 拦截（"RobotCmd does not match the corresponding
         # RobotState"）。硬件坐标变换为逐元素方向/零位映射、不重排序，故名字
@@ -171,14 +162,6 @@ class DASFPolicyConfig:
 
         self.encoder_file = "encoder.onnx"
         self.policy_file = "policy.onnx"
-        communication = config["communication"]
-        self.lower_cmd_topic = str(communication["lower_cmd_topic"])
-        self.lower_state_topic = str(communication["lower_state_topic"])
-        self.upper_cmd_topic = str(communication["upper_cmd_topic"])
-        self.upper_state_topic = str(communication["upper_state_topic"])
-        self.imu_topic = str(communication["imu_topic"])
-        self.joystick_topic = str(communication["joystick_topic"])
-
     def _validate_joint_names(self):
         if len(self.full_joint_names) != self.num_joints:
             raise ValueError("init_state.joint_names length does not match total joints")
@@ -317,31 +300,20 @@ def policy_targets_to_hardware(config, policy_targets):
     )
 
 
-def hardware_joint_transform_enabled(environment=None):
-    """Enable the adapter for MROS hardware targets unless explicitly overridden."""
-    environment = os.environ if environment is None else environment
-    override = environment.get("DA_SF_HARDWARE_JOINT_TRANSFORM")
-    if override is not None:
-        normalized = override.strip().lower()
-        if normalized in ("1", "true", "yes", "on"):
-            return True
-        if normalized in ("0", "false", "no", "off"):
-            return False
-        raise ValueError(
-            "DA_SF_HARDWARE_JOINT_TRANSFORM must be 0/1 or false/true"
-        )
-    return any(
-        environment.get(name)
-        for name in ("MROS_AGENT_IP", "MROS_AGENT_URI", "MROS_IP_LIST")
-    )
+def hardware_joint_transform_enabled(robot_ip):
+    """Enable hardware coordinates for every non-loopback SDK endpoint."""
+    robot_ip = str(robot_ip).strip()
+    if robot_ip.lower() == "localhost":
+        return False
+    try:
+        return not ipaddress.ip_address(robot_ip).is_loopback
+    except ValueError:
+        # Any non-local hostname may address hardware, so take the safe path.
+        return bool(robot_ip)
 
 
 class DASFController:
-    """DA-SF ONNX policy controller using the simulator's two MROS channels."""
-
-    # 运控通道模式类级默认（"mros" | "sdk"）：契约测试等场景绕过 __init__ 构造
-    # 实例时也能取到默认值。
-    comm_mode = "mros"
+    """DA-SF ONNX policy controller using the Centaur SDK."""
 
     JOY_BTNS = {"A": 0, "L1": 4, "R1": 5, "X": 2, "Y": 3}
     JOY_AXES = {"left_vertical": 1, "left_horizon": 0, "right_horizon": 2}
@@ -357,15 +329,9 @@ class DASFController:
         state_timeout=None,
         action_clip=None,
         use_pygame_joystick=True,
-        comm="mros",
     ):
         if ort is None:
             raise RuntimeError("onnxruntime is required: pip install onnxruntime")
-        if mros is None:
-            raise RuntimeError("mrospy is required to communicate with the simulator")
-        if comm not in ("mros", "sdk"):
-            raise ValueError(f"comm must be 'mros' or 'sdk', got {comm!r}")
-        self.comm_mode = comm
 
         self.model_dir = os.path.abspath(os.path.join(model_dir, robot_type))
         config = DASFPolicyConfig(os.path.join(self.model_dir, "params.yaml"))
@@ -375,7 +341,10 @@ class DASFController:
                 f"expected '{robot_type}'"
             )
         self.config = config
-        self.use_hardware_joint_transform = hardware_joint_transform_enabled()
+        self.robot_ip = os.environ.get("ROBOT_IP", "127.0.0.1").strip()
+        self.use_hardware_joint_transform = hardware_joint_transform_enabled(
+            self.robot_ip
+        )
         if command is None:
             command = config.default_command
         self.command = np.asarray(command, dtype=np.float64)
@@ -401,7 +370,6 @@ class DASFController:
         self.encoder_session = self._load_session(config.encoder_file)
         self.policy_session = self._load_session(config.policy_file)
         self._validate_model_contract()
-        mros.init("da_sf_policy_controller")
 
         self._lock = threading.Lock()
         self._control_lock = threading.Lock()
@@ -432,59 +400,25 @@ class DASFController:
         self.joy_msg_count = 0
         self.last_joy_time = 0.0
 
-        # 运控通道（cmd/state/IMU）双模式：
-        #   mros —— mrospy 直连话题（默认，历史路径）；
-        #   sdk  —— limxsdk Centaur controller 端（publishLower/UpperBodyRobotCmd
-        #           + subscribeLower/UpperBodyRobotState + subscribeLowerBodyImuData，
-        #           与真机部署同款 API；底层同一条 MROS 总线、同话题同消息）。
-        # 手柄 /joystick 两种模式下均保持 mros 订阅（非运控通道）。
-        self.pub_lower = None
-        self.pub_upper = None
-        self.sdk_robot = None
-        if self.comm_mode == "sdk":
-            import limxsdk.datatypes as limx_datatypes
-            from limxsdk.robot.Robot import Robot as LimxRobot
-            from limxsdk.robot.RobotType import RobotType as LimxRobotType
+        import limxsdk.datatypes as limx_datatypes
+        from limxsdk.robot.Robot import Robot as LimxRobot
+        from limxsdk.robot.RobotType import RobotType as LimxRobotType
 
-            if not hasattr(LimxRobotType, "Centaur"):
-                raise RuntimeError(
-                    "installed limxsdk has no RobotType.Centaur (too old); "
-                    "pip install --force-reinstall limxsdk-lowlevel/python3/<arch>/limxsdk-*.whl"
-                )
-            self._limx_datatypes = limx_datatypes
-            self.sdk_robot = LimxRobot(LimxRobotType.Centaur, False)
-            robot_ip = os.environ.get("ROBOT_IP", "127.0.0.1")
-            if not self.sdk_robot.init(robot_ip):
-                raise RuntimeError(f"limxsdk Centaur init failed (robot_ip={robot_ip})")
-            self.sdk_robot.subscribeLowerBodyRobotState(self._sdk_lower_state_callback)
-            self.sdk_robot.subscribeUpperBodyRobotState(self._sdk_upper_state_callback)
-            # datatypes.ImuData 与 mros IMUData 的 quat/gyro 字段同名同长，直接复用回调
-            self.sdk_robot.subscribeLowerBodyImuData(self._imu_callback)
-        else:
-            self.pub_lower = mros.advertise(
-                config.lower_cmd_topic, mros.controller_msgs.msg.JointCmd
+        if not hasattr(LimxRobotType, "Centaur"):
+            raise RuntimeError(
+                "installed limxsdk has no RobotType.Centaur (too old); "
+                "pip install --force-reinstall limxsdk-lowlevel/python3/<arch>/limxsdk-*.whl"
             )
-            self.pub_upper = mros.advertise(
-                config.upper_cmd_topic, mros.controller_msgs.msg.JointCmd
+        self._limx_datatypes = limx_datatypes
+        self.sdk_robot = LimxRobot(LimxRobotType.Centaur, False)
+        if not self.sdk_robot.init(self.robot_ip):
+            raise RuntimeError(
+                f"limxsdk Centaur init failed (robot_ip={self.robot_ip})"
             )
-            self.sub_lower = mros.subscribe(
-                config.lower_state_topic,
-                mros.controller_msgs.msg.JointState,
-                self._lower_state_callback,
-            )
-            self.sub_upper = mros.subscribe(
-                config.upper_state_topic,
-                mros.controller_msgs.msg.JointState,
-                self._upper_state_callback,
-            )
-            self.sub_imu = mros.subscribe(
-                config.imu_topic, mros.controller_msgs.msg.IMUData, self._imu_callback
-            )
-        self.sub_joystick = mros.subscribe(
-            config.joystick_topic,
-            mros.sensor_msgs.msg.Joy,
-            self.sensor_joy_callback,
-        )
+        self.sdk_robot.subscribeLowerBodyRobotState(self._lower_state_callback)
+        self.sdk_robot.subscribeUpperBodyRobotState(self._upper_state_callback)
+        self.sdk_robot.subscribeLowerBodyImuData(self._imu_callback)
+        self.sdk_robot.subscribeSensorJoy(self.sensor_joy_callback)
 
         self.last_action = np.zeros(config.num_actions, dtype=np.float64)
         self.history = np.zeros(config.history_size, dtype=np.float32)
@@ -495,12 +429,9 @@ class DASFController:
             "real hardware" if self.use_hardware_joint_transform else "simulation"
         )
         print(f"Joint coordinates: {coordinate_source}")
-        if self.comm_mode == "sdk":
-            print("Comm: limxsdk Centaur (LowerBody/UpperBody cmd+state, base IMU); /joystick via MROS")
-        else:
-            print("Comm: MROS topics ready: lower + did_upbody, base IMU")
+        print("Comm: limxsdk Centaur (LowerBody/UpperBody cmd+state, base IMU)")
         joystick_source = (
-            "direct pygame/F710" if self._pygame_enabled else "MROS /joystick"
+            "direct pygame/F710" if self._pygame_enabled else "limxsdk SensorJoy"
         )
         print(f"Joystick source: {joystick_source}")
         print("Joystick: L1 + Y start, L1 + X stop, R1 clear command/history")
@@ -555,32 +486,6 @@ class DASFController:
             "(policy includes actor normalization)"
         )
 
-    def _lower_state_callback(self, message):
-        if (
-            len(message.q) < self.config.num_lower
-            or len(message.v) < self.config.num_lower
-        ):
-            self._lower_invalid = (len(message.q), len(message.v))
-            return
-        with self._lock:
-            self._lower_q[:] = message.q[: self.config.num_lower]
-            self._lower_dq[:] = message.v[: self.config.num_lower]
-            self._lower_stamp = time.monotonic()
-            self._lower_count += 1
-
-    def _upper_state_callback(self, message):
-        if (
-            len(message.q) < self.config.num_upper
-            or len(message.v) < self.config.num_upper
-        ):
-            self._upper_invalid = (len(message.q), len(message.v))
-            return
-        with self._lock:
-            self._upper_q[:] = message.q[: self.config.num_upper]
-            self._upper_dq[:] = message.v[: self.config.num_upper]
-            self._upper_stamp = time.monotonic()
-            self._upper_count += 1
-
     def _imu_callback(self, message):
         if len(message.quat) < 4 or len(message.gyro) < 3:
             self._imu_invalid = (len(message.quat), len(message.gyro))
@@ -591,8 +496,7 @@ class DASFController:
             self._imu_stamp = time.monotonic()
             self._imu_count += 1
 
-    # ---- SDK(Centaur) 模式回调：datatypes.RobotState 的速度字段为 dq（mros 为 v）----
-    def _sdk_lower_state_callback(self, state):
+    def _lower_state_callback(self, state):
         if (
             len(state.q) < self.config.num_lower
             or len(state.dq) < self.config.num_lower
@@ -605,7 +509,7 @@ class DASFController:
             self._lower_stamp = time.monotonic()
             self._lower_count += 1
 
-    def _sdk_upper_state_callback(self, state):
+    def _upper_state_callback(self, state):
         if (
             len(state.q) < self.config.num_upper
             or len(state.dq) < self.config.num_upper
@@ -626,13 +530,13 @@ class DASFController:
         if not self._use_pygame_joystick:
             return
         if pygame is None:
-            print("pygame is unavailable; using MROS /joystick")
+            print("pygame is unavailable; using limxsdk SensorJoy")
             return
         try:
             pygame.init()
             pygame.joystick.init()
             if pygame.joystick.get_count() <= 0:
-                print("No direct joystick found; using MROS /joystick")
+                print("No direct joystick found; using limxsdk SensorJoy")
                 return
             self._pygame_joystick = pygame.joystick.Joystick(0)
             self._pygame_joystick.init()
@@ -640,7 +544,7 @@ class DASFController:
             print(f"Direct joystick ready: {self._pygame_joystick.get_name()}")
         except pygame.error as error:
             self._pygame_joystick = None
-            print(f"Direct joystick init failed ({error}); using MROS /joystick")
+            print(f"Direct joystick init failed ({error}); using limxsdk SensorJoy")
 
     @staticmethod
     def _deadzone(value, threshold=0.08):
@@ -774,22 +678,6 @@ class DASFController:
             q, dq = hardware_to_policy_state(self.config, q, dq)
         return q, dq, quaternion, gyro
 
-    @staticmethod
-    def _make_joint_command(q, kp, kd, names):
-        message = mros.controller_msgs.msg.JointCmd()
-        num_joints = len(q)
-        # controller_msgs/JointCmd 的关节名字段为 names（SDK datatypes.RobotCmd
-        # 侧对应 motor_names）；须与 q/kp/kd 数组顺序一一对应。
-        message.names = list(names)
-        message.q = list(q)
-        message.v = [0.0] * num_joints
-        message.tau = [0.0] * num_joints
-        message.kp = list(kp)
-        message.kd = list(kd)
-        message.mode = [10] * num_joints
-        message.na = num_joints
-        return message
-
     def _make_sdk_command(self, q, kp, kd, names):
         """limxsdk datatypes.RobotCmd（SDK 端字段：dq/Kp/Kd/motor_names）。"""
         command = self._limx_datatypes.RobotCmd()
@@ -815,25 +703,13 @@ class DASFController:
             kd = self.config.kd
         lower = self.config.num_lower
         names = self.config.wire_joint_names
-        if self.comm_mode == "sdk":
-            self.sdk_robot.publishLowerBodyRobotCmd(
-                self._make_sdk_command(
-                    targets[:lower], kp[:lower], kd[:lower], names[:lower]
-                )
-            )
-            self.sdk_robot.publishUpperBodyRobotCmd(
-                self._make_sdk_command(
-                    targets[lower:], kp[lower:], kd[lower:], names[lower:]
-                )
-            )
-            return
-        self.pub_lower.publish(
-            self._make_joint_command(
+        self.sdk_robot.publishLowerBodyRobotCmd(
+            self._make_sdk_command(
                 targets[:lower], kp[:lower], kd[:lower], names[:lower]
             )
         )
-        self.pub_upper.publish(
-            self._make_joint_command(
+        self.sdk_robot.publishUpperBodyRobotCmd(
+            self._make_sdk_command(
                 targets[lower:], kp[lower:], kd[lower:], names[lower:]
             )
         )
@@ -864,13 +740,6 @@ class DASFController:
             + self._state_diagnostics()
         )
 
-    @staticmethod
-    def _subscriber_status(subscriber):
-        try:
-            return "yes" if subscriber.negotiated() else "no"
-        except Exception:
-            return "unknown"
-
     def _state_diagnostics(self):
         now = time.monotonic()
 
@@ -883,14 +752,10 @@ class DASFController:
             imu = (self._imu_count, age(self._imu_stamp), self._imu_invalid)
         return (
             "streams: "
-            f"lower(negotiated={self._subscriber_status(self.sub_lower)}, "
-            f"count={lower[0]}, age={lower[1]}, invalid={lower[2]}); "
-            f"upper(negotiated={self._subscriber_status(self.sub_upper)}, "
-            f"count={upper[0]}, age={upper[1]}, invalid={upper[2]}); "
-            f"imu(negotiated={self._subscriber_status(self.sub_imu)}, "
-            f"count={imu[0]}, age={imu[1]}, invalid={imu[2]}); "
-            f"joystick(negotiated={self._subscriber_status(self.sub_joystick)}, "
-            f"count={self.joy_msg_count})"
+            f"lower(count={lower[0]}, age={lower[1]}, invalid={lower[2]}); "
+            f"upper(count={upper[0]}, age={upper[1]}, invalid={upper[2]}); "
+            f"imu(count={imu[0]}, age={imu[1]}, invalid={imu[2]}); "
+            f"joystick(count={self.joy_msg_count})"
         )
 
     def _move_to_default_pose(self, start_q):
@@ -1030,8 +895,4 @@ class DASFController:
             print(f"DA-SF controller stopped: {error}")
         finally:
             self._publish_damping_stop()
-            try:
-                mros.shutdown()
-            except Exception as error:
-                print(f"MROS shutdown warning: {error}")
 

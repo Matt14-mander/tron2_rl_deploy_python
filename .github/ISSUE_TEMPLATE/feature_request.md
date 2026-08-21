@@ -18,7 +18,7 @@ assignees: ''
 
 ## Downstream impact
 
-- Variants affected: `SF_TRON2A` / `WF_TRON2A` / both / neither
+- Variants affected: `SF_TRON2A` / `WF_TRON2A` / `DASF_TRON2A` / multiple / none
 - Backwards compatibility (env var names, model layout, joystick binds)?
 - Any impact on real-hardware behavior?
 
@@ -27,6 +27,6 @@ assignees: ''
 - [ ] This request does **not** require shipping new model weights,
       SDK binaries, firmware, calibration values, or customer data.
 - [ ] If it does require a new model, I have read the
-      [Model files and provenance](../CONTRIBUTING.md#model-files-and-provenance)
+      [Model files and provenance](../../CONTRIBUTING.md#model-files-and-provenance)
       section of `CONTRIBUTING.md`.
 - [ ] I have skimmed `CONTRIBUTING.md` for coding / lint conventions.

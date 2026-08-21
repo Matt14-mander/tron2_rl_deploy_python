@@ -11,7 +11,7 @@ assignees: ''
 <!-- Path within the repo, e.g. controllers/SolefootController.py -->
 
 - File(s):
-- Variant(s): `SF_TRON2A` / `WF_TRON2A` (pick)
+- Variant(s): `SF_TRON2A` / `WF_TRON2A` / `DASF_TRON2A` (pick)
 - Commit / tag:
 
 ## Environment
@@ -36,7 +36,7 @@ assignees: ''
 
 ```bash
 # commands that reproduce it locally, ideally in simulation first
-export ROBOT_TYPE=SF_TRON2A
+export ROBOT_TYPE=SF_TRON2A  # or WF_TRON2A / DASF_TRON2A
 python3 main.py
 ```
 

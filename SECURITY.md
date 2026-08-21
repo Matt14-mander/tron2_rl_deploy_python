@@ -7,10 +7,11 @@ TRON2A humanoid platform. It contains:
 
 - The controller entry point (`main.py`) that opens a network
   connection to a physical robot via the LimX SDK.
-- Two Python controllers (`SolefootController`, `WheelfootController`)
-  that load ONNX policies and drive joint targets (`q`, `dq`, `tau`,
-  `Kp`, `Kd`) at real-time control rates.
-- Four checked-in ONNX weight files (see
+- Three Python controllers (`SolefootController`,
+  `WheelfootController`, `DASFController`) that load ONNX policies
+  and drive joint targets (`q`, `dq`, `tau`, `Kp`, `Kd`) at
+  real-time control rates.
+- Six checked-in ONNX weight files (see
   [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) §2 and
   [`MODEL_CARD.md`](MODEL_CARD.md)) that determine the robot's motion.
 
@@ -50,29 +51,26 @@ into this repository.
 
 ## Real-hardware safety notice
 
-**This repository is not a simulation-only demo.** `main.py:20-27`
-calls `robot.init(robot_ip)` on the LimX SDK, and
-`controllers/SolefootController.py:34-50` (and the wheel-foot
-equivalent) loads ONNX and writes joint targets that a real robot will
-execute. Before running against real hardware:
+**This repository is not a simulation-only demo.** `main.py` connects
+the selected SF, WF, or DASF controller through the LimX SDK. The
+variant controller loads ONNX and writes joint targets that a real
+robot will execute. DASF uses the Centaur lower- and upper-body SDK
+channels. Before running against real hardware:
 
 1. **Suspend / hang the robot** on its mount (as noted in the README's
    real-world deployment section). Do not run a freshly-cloned
    controller with the robot on the ground.
-2. **Confirm the target IP.** `main.py` requires the robot / SDK
-   target IP as an explicit command-line argument
-   (`python3 main.py <robot-ip>`). The `<robot-ip>` token that
-   appears in this repository's docs is a **placeholder** — always
-   pass your own robot's IP explicitly rather than relying on any
-   documented example or default being appropriate for your
-   environment. Nothing in this repository's source hard-codes a
-   private IP; the internal-only sibling `tron2-rl-deploy-ros`
-   retains a documentation-example literal `10.192.1.2` in its
-   source / launch files (declared in that repo's `SECURITY.md`)
-   and this repository intentionally does not.
-3. **Verify the model files** match your robot variant. Loading an
-   `SF_TRON2A` policy against a `WF_TRON2A` chassis (or vice-versa)
-   will produce invalid joint commands.
+2. **Confirm the target IP.** `main.py` defaults to the local MuJoCo
+  endpoint at `127.0.0.1`. For hardware, pass your robot / SDK target
+  explicitly (`python3 main.py <robot-ip>`). The `<robot-ip>` token
+  in the docs is a **placeholder**. Nothing in this repository's
+  source hard-codes a private IP; the internal-only sibling
+  `tron2-rl-deploy-ros` retains a documentation-example literal
+  `10.192.1.2` in its source / launch files (declared in that repo's
+  `SECURITY.md`) and this repository intentionally does not.
+3. **Verify the model files** match your robot variant. Mixing any of
+  the `SF_TRON2A`, `WF_TRON2A`, or `DASF_TRON2A` policies with a
+  different chassis will produce invalid joint commands.
 4. **Have a physical e-stop / power cut-off** within reach for the
    entire session.
 5. Prefer simulation first — bring the controller up against the

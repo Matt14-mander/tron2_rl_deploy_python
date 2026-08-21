@@ -21,10 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Issue templates and PR template under `.github/`, plus `CODEOWNERS`
   routing to maintainers / legal / model / sdk / robotics / safety
   teams.
-- `MODEL_CARD.md` at the repo root with template rows for the four
+- `MODEL_CARD.md` at the repo root with template rows for all six
   checked-in ONNX files (`SF_TRON2A/policy.onnx`,
   `SF_TRON2A/encoder.onnx`, `WF_TRON2A/policy.onnx`,
-  `WF_TRON2A/encoder.onnx`).
+  `WF_TRON2A/encoder.onnx`, `DASF_TRON2A/policy.onnx`, and
+  `DASF_TRON2A/encoder.onnx`).
+- `DASF_TRON2A` deployment through `DASFController.py`, including
+  Centaur SDK lower/upper-body channels and local-MuJoCo versus
+  real-hardware joint-coordinate handling.
 - `README.md`: SPDX header; "License & attribution" cross-links;
   "Scope / not included" (calls out the ONNX policy / encoder files
   pending provenance, real-hardware control code, and the
@@ -37,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.gitignore` expanded from a single-line `__pycache__` to a
   Python-appropriate ignore list (venv, caches, editor / OS junk,
   build artifacts), plus a hard deny-list for weight / SDK / bag
-  artifacts. The four grandfathered ONNX files under
+  artifacts. The six grandfathered ONNX files under
   `controllers/model/**` are exempted via an explicit `!` rule so the
   deny-list applies everywhere else in the tree.
 - `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, and command examples
@@ -68,6 +72,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ONNX provenance for `controllers/model/WF_TRON2A/encoder.onnx`** —
   same fields. See
   [`MODEL_CARD.md`](MODEL_CARD.md#wf_tron2aencoderonnx).
+- **ONNX provenance for `controllers/model/DASF_TRON2A/policy.onnx`** —
+  same fields. See
+  [`MODEL_CARD.md`](MODEL_CARD.md#dasf_tron2apolicyonnx).
+- **ONNX provenance for `controllers/model/DASF_TRON2A/encoder.onnx`** —
+  same fields. See
+  [`MODEL_CARD.md`](MODEL_CARD.md#dasf_tron2aencoderonnx).
 - **`limxsdk-lowlevel` submodule commit clearance** — SDK owner /
   legal must clear the upstream repository's license and confirm
   that consuming the SDK via a submodule pin is acceptable for a
@@ -84,9 +94,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 First public release. Contents:
 
-- Python controller entry point and SF / WF controllers for
-  `SF_TRON2A` and `WF_TRON2A` variants.
-- Four ONNX inference blobs under `controllers/model/*/` (subject to
+- Python controller entry point and SF / WF / DASF controllers for
+  `SF_TRON2A`, `WF_TRON2A`, and `DASF_TRON2A` variants.
+- Six ONNX inference blobs under `controllers/model/*/` (subject to
   the Pending owner sign-off items above).
 - LimX SDK consumed via the `limxsdk-lowlevel` submodule; SDK wheel is
   **not** vendored.

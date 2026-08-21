@@ -1,5 +1,5 @@
 PointfootCfg:
-  robot_variant: DA_SF_TRON2A
+  robot_variant: DASF_TRON2A
   xml_path: robot-description/tron2/DA_SF/xml/robot.xml
 
   loop_frequency: 200
@@ -236,11 +236,3 @@ PointfootCfg:
   runtime:
     state_timeout: 0.5
     state_wait_timeout: 10.0
-
-  communication:
-    lower_cmd_topic: /motor/cmd
-    lower_state_topic: /motor/state
-    upper_cmd_topic: /did_upbody/motor/cmd
-    upper_state_topic: /did_upbody/motor/state
-    imu_topic: /ImuData
-    joystick_topic: /joystick
