@@ -215,10 +215,11 @@ joystick axes are scaled by `commands.max` in
 
 ## 7. Screenshots / GIFs
 
-### Simulation deployment
+### MuJoCo simulation deployment
 
 ![SF Simulation](doc/sfmj-ezgif.com-video-to-gif-converter.gif)
 ![WF Simulation](doc/wfmj-ezgif.com-video-to-gif-converter.gif)
+![DASF MuJoCo Simulation](doc/dasfmj-ezgif.com-video-to-gif-converter%20copy.gif)
 
 ### Real-world deployment
 
@@ -229,6 +230,7 @@ real hardware.
 
 ![SF Real-world](doc/sf.GIF)
 ![WF Real-world](doc/wf.GIF)
+![DASF Real-world](doc/dasf.GIF)
 
 ## 8. FAQ
 
