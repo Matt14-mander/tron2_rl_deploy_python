@@ -129,7 +129,7 @@ independently.
 | `doc/dasf.GIF` | Real-world video capture | ⚠ TO CONFIRM | ⚠ TO CONFIRM |
 | `doc/sfmj-ezgif.com-video-to-gif-converter.gif` | Simulation capture | ⚠ TO CONFIRM | ⚠ TO CONFIRM |
 | `doc/wfmj-ezgif.com-video-to-gif-converter.gif` | Simulation capture | ⚠ TO CONFIRM | ⚠ TO CONFIRM |
-| `doc/dasfmj-ezgif.com-video-to-gif-converter copy.gif` | MuJoCo simulation capture | ⚠ TO CONFIRM | ⚠ TO CONFIRM |
+| `doc/mujoco_dasf.gif` | MuJoCo simulation capture | ⚠ TO CONFIRM | ⚠ TO CONFIRM |
 
 Before release, run:
 

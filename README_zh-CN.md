@@ -194,7 +194,7 @@ F710 背面切换到 `X` 模式并连接后，直接运行 `main.py`。启动日
 
 ![SF Simulation](doc/sfmj-ezgif.com-video-to-gif-converter.gif)
 ![WF Simulation](doc/wfmj-ezgif.com-video-to-gif-converter.gif)
-![DASF MuJoCo Simulation](doc/dasfmj-ezgif.com-video-to-gif-converter%20copy.gif)
+![DASF MuJoCo Simulation](doc/mujoco_dasf.gif)
 
 ### 实机部署 (Real-world)
 
