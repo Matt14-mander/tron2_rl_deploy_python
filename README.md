@@ -1,3 +1,5 @@
+# English | [中文](README_zh-CN.md)
+
 <!--
   SPDX-FileCopyrightText: 2024-2026 LimX Dynamics Technology Co., Ltd.
   SPDX-License-Identifier: Apache-2.0
@@ -5,7 +7,6 @@
 
 # tron2-rl-deploy-python
 
-[English](README.md) | [中文](README_zh-CN.md)
 
 > **Distribution.** The primary public distribution point for this
 > repository is GitHub:
