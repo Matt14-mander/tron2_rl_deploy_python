@@ -1,0 +1,33 @@
+PointfootCfg:
+  robot_variant: SFYG_TRON2A
+  loop_frequency: 500
+  init_state:
+    joint_names: [proximal_pitch_L, proximal_roll_L, proximal_yaw_L, knee_L, ankle_pitch_L, proximal_pitch_R, proximal_roll_R, proximal_yaw_R, knee_R, ankle_pitch_R, arm1, arm2, arm3, arm4, arm5, arm6, gripper1, gripper2]
+    policy_joint_names: [proximal_pitch_L, proximal_roll_L, proximal_yaw_L, knee_L, ankle_pitch_L, proximal_pitch_R, proximal_roll_R, proximal_yaw_R, knee_R, ankle_pitch_R]
+    arm_joint_names: [arm1, arm2, arm3, arm4, arm5, arm6]
+    gripper_joint_names: [gripper1, gripper2]
+    default_joint_angle:
+      {proximal_pitch_L: 0.0, proximal_roll_L: 0.0, proximal_yaw_L: -3.14159, knee_L: 0.0, ankle_pitch_L: 0.0, proximal_pitch_R: 0.0, proximal_roll_R: 0.0, proximal_yaw_R: 3.14159, knee_R: 0.0, ankle_pitch_R: 0.0, arm1: 0.0, arm2: 1.5707963, arm3: -1.4835299, arm4: 0.0, arm5: 0.0, arm6: 0.0, gripper1: 0.05, gripper2: -0.05}
+  control:
+    decimation: 10
+    stiffness:
+      {proximal_pitch_L: 159.67, proximal_roll_L: 159.67, proximal_yaw_L: 53.22, knee_L: 159.67, ankle_pitch_L: 53.22, proximal_pitch_R: 159.67, proximal_roll_R: 159.67, proximal_yaw_R: 53.22, knee_R: 159.67, ankle_pitch_R: 53.22, arm1: 60.0, arm2: 60.0, arm3: 60.0, arm4: 60.0, arm5: 60.0, arm6: 60.0, gripper1: 100.0, gripper2: 100.0}
+    damping:
+      {proximal_pitch_L: 10.16, proximal_roll_L: 10.16, proximal_yaw_L: 3.39, knee_L: 10.16, ankle_pitch_L: 3.39, proximal_pitch_R: 10.16, proximal_roll_R: 10.16, proximal_yaw_R: 3.39, knee_R: 10.16, ankle_pitch_R: 3.39, arm1: 6.0, arm2: 6.0, arm3: 6.0, arm4: 6.0, arm5: 6.0, arm6: 6.0, gripper1: 5.0, gripper2: 5.0}
+    action_scale_pos:
+      {proximal_pitch_L: 0.25, proximal_roll_L: 0.25, proximal_yaw_L: 0.25, knee_L: 0.25, ankle_pitch_L: 0.25, proximal_pitch_R: 0.25, proximal_roll_R: 0.25, proximal_yaw_R: 0.25, knee_R: 0.25, ankle_pitch_R: 0.25}
+  normalization:
+    clip_scales: {clip_observations: 100.0, clip_actions: 100.0}
+    obs_scales: {ang_vel: 0.25, dof_pos: 1.0, dof_vel: 0.05}
+  size:
+    actions_size: 10
+    proprio_obs_size: 42
+    wrench_prediction_size: 30
+    commands_obs_size: 3
+    encoder_input_size: 420
+    encoder_output_size: 3
+    policy_input_size: 78
+    obs_history_length: 10
+  gait: {frequency: 0.8, offset: 0.5, duration: 0.5, swing_height: 0.20, command_threshold: 0.001}
+  stand_mode: {stand_duration: 3.0}
+  runtime: {state_timeout: 0.5, state_wait_timeout: 10.0}

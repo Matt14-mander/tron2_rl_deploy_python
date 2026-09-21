@@ -1,13 +1,20 @@
 import argparse
 import os
 import sys
-import controllers as controllers
+
+import controllers
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="TRON2 policy controller entry")
     parser.add_argument("robot_ip", nargs="?", default="127.0.0.1",
                         help="robot ip (default 127.0.0.1)")
     parser.add_argument("--sdk", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--ocs2-trajectory", default=None,
+                        help="SFYG: 52-column OCS2 trajectory CSV")
+    parser.add_argument("--start-controller", action="store_true",
+                        help="start policy immediately (SFYG requires OCS2 trajectory)")
+    parser.add_argument("--duration", type=float, default=0.0,
+                        help="exit after N seconds; 0 runs until interrupted")
     args = parser.parse_args()
 
     # Get the robot type from the environment variable
@@ -20,8 +27,8 @@ if __name__ == '__main__':
 
     model_dir = f'{os.path.dirname(os.path.abspath(__file__))}/controllers/model'
 
-    if robot_type not in ("SF_TRON2A", "WF_TRON2A", "DASF_TRON2A"):
-        print(f"\033[31mError: unsupported ROBOT_TYPE='{robot_type}', expected SF_TRON2A, WF_TRON2A, or DASF_TRON2A\033[0m")
+    if robot_type not in ("SF_TRON2A", "SFYG_TRON2A", "WF_TRON2A", "DASF_TRON2A"):
+        print(f"\033[31mError: unsupported ROBOT_TYPE='{robot_type}'\033[0m")
         sys.exit(1)
 
     # DA-SF uses the Centaur SDK for motion, IMU, and joystick channels.
@@ -32,8 +39,7 @@ if __name__ == '__main__':
         sys.exit(0)
 
     # Create a Robot instance of the specified type
-    import limxsdk.robot.Robot as Robot
-    import limxsdk.robot.RobotType as RobotType
+    from limxsdk.robot import Robot, RobotType
     robot = Robot(RobotType.Tron2)
 
     # Initialize the robot with the provided IP address
@@ -49,6 +55,15 @@ if __name__ == '__main__':
     if robot_type == "SF_TRON2A":
         controller = controllers.SolefootController(model_dir, robot, robot_type, start_controller, use_pygame_joystick=use_pygame_joystick)
         controller.run()
+    elif robot_type == "SFYG_TRON2A":
+        controller = controllers.SFYGController(
+            model_dir,
+            robot,
+            robot_type,
+            start_controller=args.start_controller,
+            ocs2_trajectory=args.ocs2_trajectory,
+        )
+        controller.run(duration=args.duration)
     elif robot_type == "WF_TRON2A":
         controller = controllers.WheelfootController(model_dir, robot, robot_type, start_controller, use_pygame_joystick=use_pygame_joystick)
         controller.run()

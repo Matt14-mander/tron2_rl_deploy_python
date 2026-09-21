@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `SFYG_TRON2A` deployment scaffold with a named 18-joint wire order, 500 Hz
+  command publication, and 50 Hz `420->3` encoder / `78->10` WholeBody policy.
+- Replay and validation of the WholeBody Lab 52-column OCS2 trajectory contract.
+- Pure SFYG contract tests covering observation order, wrench normalization,
+  leg/arm ownership, and terminal safe hold.
+
 - Open-source scaffolding: `NOTICE`, `THIRD_PARTY_NOTICES.md`,
   `MODEL_CARD.md`, `SECURITY.md`, `CONTRIBUTING.md`, `CHANGELOG.md`.
 - GitHub CI workflow: `ruff` lint, `python -m py_compile` over every

@@ -15,8 +15,9 @@
 > the GitHub repository.
 
 Reinforcement-learning **deployment / inference** stack (Python) for
-the TRON2A humanoid — Sole-Foot (`SF_TRON2A`), Wheel-Foot
-(`WF_TRON2A`), and dual-arm Sole-Foot (`DASF_TRON2A`) variants. Loads ONNX policies via `onnxruntime` and
+the TRON2A humanoid — Sole-Foot (`SF_TRON2A`), single-arm whole-body
+(`SFYG_TRON2A`), Wheel-Foot (`WF_TRON2A`), and dual-arm Sole-Foot
+(`DASF_TRON2A`) variants. Loads ONNX policies via `onnxruntime` and
 drives joint targets through the LimX low-level SDK, either against
 the MuJoCo simulator or against a physical robot.
 
@@ -96,6 +97,10 @@ SPDX identifier: `Apache-2.0`.
   control logic.
 - `controllers/DASFController.py`: `DASF_TRON2A` dual-channel Centaur SDK
   inference and control logic.
+- `controllers/SFYGController.py`: named 18-joint composition of a 10D leg
+  policy, six OCS2 arm targets, and two gripper targets.
+- `controllers/sfyg_contract.py`: pure 42D proprioception, 30D future-wrench,
+  and 52-column OCS2 trajectory contracts.
 - `controllers/model/<ROBOT_TYPE>/`: per-variant model and
   configuration directory.
 - `limxsdk-lowlevel/`: LimX SDK sources and examples.
@@ -136,6 +141,12 @@ Model files must be placed per robot variant at:
 - `controllers/model/DASF_TRON2A/policy.onnx`
 - `controllers/model/DASF_TRON2A/encoder.onnx`
 - `controllers/model/DASF_TRON2A/params.yaml`
+- `controllers/model/SFYG_TRON2A/params.yaml`
+- `controllers/model/SFYG_TRON2A/encoder.onnx` (`420 -> 3`, export required)
+- `controllers/model/SFYG_TRON2A/policy.onnx` (`78 -> 10`, export required)
+
+The SFYG policy input order is `encoder(3) + proprioception(42) + normalized
+future wrench(30) + base command(3)`. An ordinary `48 -> 10` policy is rejected.
 
 ## 4. Running the controller
 
@@ -146,6 +157,7 @@ cd tron2-rl-deploy-python
 export ROBOT_TYPE=SF_TRON2A
 # or: export ROBOT_TYPE=WF_TRON2A
 # or: export ROBOT_TYPE=DASF_TRON2A
+# or: export ROBOT_TYPE=SFYG_TRON2A
 ```
 
 ### Step 2: Launch the controller
@@ -167,6 +179,20 @@ Specify a robot or SDK target IP:
 # repo's SECURITY.md.)
 python3 main.py <robot-ip>
 ```
+
+The first SFYG stage replays a 52-column trajectory exported by WholeBody Lab:
+
+```bash
+export ROBOT_TYPE=SFYG_TRON2A
+python3 main.py 127.0.0.1 \
+  --ocs2-trajectory /path/to/trajectory.csv \
+  --start-controller
+```
+
+The controller publishes the complete named 18-joint `RobotCmd` at 500 Hz and
+updates the encoder, policy, and OCS2 sample at 50 Hz. Without
+`--start-controller` it holds the default pose; starting without a trajectory
+is rejected.
 
 ## 5. Working with the MuJoCo simulator
 

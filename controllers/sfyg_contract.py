@@ -1,0 +1,257 @@
+"""Pure numerical contracts for SFYG whole-body deployment."""
+
+from __future__ import annotations
+
+import math
+import os
+from dataclasses import dataclass
+
+import numpy as np
+import yaml
+
+WRENCH_TIMES = np.asarray((0.0, 0.2, 0.4, 0.6, 0.8), dtype=np.float64)
+WRENCH_SCALE = np.asarray((0.01, 0.01, 0.01, 0.05, 0.05, 0.05), dtype=np.float64)
+
+
+@dataclass(frozen=True)
+class Ocs2Solution:
+    time: float
+    arm_position: np.ndarray
+    arm_velocity: np.ndarray
+    arm_effort: np.ndarray
+    base_command: np.ndarray
+    wrench_prediction: np.ndarray
+
+
+def validate_ocs2_solution(solution):
+    expected = {
+        "arm_position": (6,),
+        "arm_velocity": (6,),
+        "arm_effort": (6,),
+        "base_command": (3,),
+        "wrench_prediction": (5, 6),
+    }
+    if not np.isfinite(solution.time):
+        raise ValueError("OCS2 solution time must be finite")
+    for name, shape in expected.items():
+        value = np.asarray(getattr(solution, name))
+        if value.shape != shape or not np.all(np.isfinite(value)):
+            raise ValueError(f"OCS2 {name} must be finite with shape {shape}")
+
+
+def trajectory_columns():
+    names = ["time"]
+    names.extend(f"arm_q{i}" for i in range(1, 7))
+    names.extend(f"arm_dq{i}" for i in range(1, 7))
+    names.extend(f"arm_tau{i}" for i in range(1, 7))
+    names.extend(("base_vx", "base_vy", "base_wz"))
+    for sample in range(5):
+        names.extend(
+            f"w{sample}_{component}"
+            for component in ("fx", "fy", "fz", "tx", "ty", "tz")
+        )
+    return tuple(names)
+
+
+TRAJECTORY_COLUMNS = trajectory_columns()
+
+
+class Ocs2Trajectory:
+    """Validated interpolation of the WholeBody Lab 52-column export."""
+
+    def __init__(self, path):
+        self.path = os.path.abspath(path)
+        if not os.path.isfile(self.path):
+            raise FileNotFoundError(f"OCS2 trajectory not found: {self.path}")
+        with open(self.path, encoding="utf-8") as stream:
+            header = tuple(part.strip() for part in stream.readline().split(","))
+        if header != TRAJECTORY_COLUMNS:
+            raise ValueError("OCS2 trajectory does not use the 52-column v1 contract")
+        self.data = np.loadtxt(
+            self.path, delimiter=",", skiprows=1, ndmin=2, dtype=np.float64
+        )
+        if self.data.shape[1] != 52 or self.data.shape[0] < 2:
+            raise ValueError("OCS2 trajectory must have shape (N>=2, 52)")
+        if not np.all(np.isfinite(self.data)):
+            raise ValueError("OCS2 trajectory contains NaN or Inf")
+        if abs(self.data[0, 0]) > 1.0e-9 or np.any(np.diff(self.data[:, 0]) <= 0):
+            raise ValueError("OCS2 trajectory must start at zero and increase strictly")
+
+    @property
+    def duration(self):
+        return float(self.data[-1, 0])
+
+    def sample(self, time_s):
+        if not np.isfinite(time_s) or time_s < 0.0:
+            raise ValueError("trajectory time must be finite and non-negative")
+        times = self.data[:, 0]
+        if time_s >= times[-1]:
+            row = self.data[-1].copy()
+            row[7:13] = 0.0
+            row[19:22] = 0.0
+        else:
+            upper = int(np.searchsorted(times, time_s, side="right"))
+            lower = max(0, upper - 1)
+            alpha = (time_s - times[lower]) / (times[upper] - times[lower])
+            row = (1.0 - alpha) * self.data[lower] + alpha * self.data[upper]
+        solution = Ocs2Solution(
+            time=float(time_s),
+            arm_position=row[1:7].copy(),
+            arm_velocity=row[7:13].copy(),
+            arm_effort=row[13:19].copy(),
+            base_command=row[19:22].copy(),
+            wrench_prediction=row[22:52].reshape(5, 6).copy(),
+        )
+        validate_ocs2_solution(solution)
+        return solution
+
+
+class SFYGPolicyConfig:
+    """Validated SFYG runtime configuration."""
+
+    def __init__(self, path):
+        self.path = os.path.abspath(path)
+        with open(self.path, encoding="utf-8") as stream:
+            root = yaml.safe_load(stream)
+        config = root["PointfootCfg"]
+        self.robot_variant = str(config["robot_variant"])
+        init = config["init_state"]
+        self.joint_names = list(init["joint_names"])
+        self.leg_joint_names = list(init["policy_joint_names"])
+        self.arm_joint_names = list(init["arm_joint_names"])
+        self.gripper_joint_names = list(init["gripper_joint_names"])
+        if self.joint_names != (
+            self.leg_joint_names + self.arm_joint_names + self.gripper_joint_names
+        ):
+            raise ValueError("SFYG joint order must be legs, arm, then gripper")
+        if (len(self.joint_names), len(self.leg_joint_names)) != (18, 10):
+            raise ValueError("SFYG requires 18 joints and 10 policy joints")
+        self.wire_joint_names = [f"{name}_Joint" for name in self.joint_names]
+        self.default_q = self._ordered(init["default_joint_angle"], self.joint_names)
+        control = config["control"]
+        self.kp = self._ordered(control["stiffness"], self.joint_names)
+        self.kd = self._ordered(control["damping"], self.joint_names)
+        self.action_scale = self._ordered(
+            control["action_scale_pos"], self.leg_joint_names
+        )
+        self.decimation = int(control["decimation"])
+        self.loop_frequency = float(config["loop_frequency"])
+        self.policy_frequency = self.loop_frequency / self.decimation
+        scales = config["normalization"]["obs_scales"]
+        self.ang_vel_scale = float(scales["ang_vel"])
+        self.dof_pos_scale = float(scales["dof_pos"])
+        self.dof_vel_scale = float(scales["dof_vel"])
+        clips = config["normalization"]["clip_scales"]
+        self.observation_clip = abs(float(clips["clip_observations"]))
+        self.action_clip = abs(float(clips["clip_actions"]))
+        size = config["size"]
+        self.num_actions = int(size["actions_size"])
+        self.proprio_size = int(size["proprio_obs_size"])
+        self.wrench_size = int(size["wrench_prediction_size"])
+        self.history_length = int(size["obs_history_length"])
+        self.encoder_output_size = int(size["encoder_output_size"])
+        self.command_size = int(size["commands_obs_size"])
+        self.history_size = self.proprio_size * self.history_length
+        self.policy_input_size = (
+            self.encoder_output_size
+            + self.proprio_size
+            + self.wrench_size
+            + self.command_size
+        )
+        expected = (10, 42, 30, 420, 3, 3, 78)
+        actual = (
+            self.num_actions,
+            self.proprio_size,
+            self.wrench_size,
+            int(size["encoder_input_size"]),
+            self.encoder_output_size,
+            self.command_size,
+            int(size["policy_input_size"]),
+        )
+        if actual != expected or self.history_size != 420 or self.policy_input_size != 78:
+            raise ValueError(f"SFYG model contract mismatch: {actual}")
+        gait = config["gait"]
+        self.gait = np.asarray(
+            [gait["frequency"], gait["offset"], gait["duration"], gait["swing_height"]],
+            dtype=np.float64,
+        )
+        self.command_threshold = float(gait["command_threshold"])
+        runtime = config["runtime"]
+        self.state_timeout = float(runtime["state_timeout"])
+        self.state_wait_timeout = float(runtime["state_wait_timeout"])
+        self.stand_duration = float(config["stand_mode"]["stand_duration"])
+        self.encoder_file = "encoder.onnx"
+        self.policy_file = "policy.onnx"
+
+    @staticmethod
+    def _ordered(values, names):
+        if set(values) != set(names):
+            raise ValueError("joint-keyed configuration does not match joint_names")
+        result = np.asarray([values[name] for name in names], dtype=np.float64)
+        if not np.all(np.isfinite(result)):
+            raise ValueError("joint-keyed configuration contains NaN or Inf")
+        return result
+
+
+def projected_gravity_from_wxyz(quaternion):
+    quaternion = np.asarray(quaternion, dtype=np.float64)
+    norm = np.linalg.norm(quaternion)
+    if quaternion.shape != (4,) or not np.isfinite(norm) or norm < 1.0e-8:
+        raise ValueError("invalid IMU quaternion")
+    w, x, y, z = quaternion / norm
+    return np.asarray(
+        [2 * (w * y - x * z), -2 * (y * z + w * x), 2 * (x * x + y * y) - 1]
+    )
+
+
+def build_proprio_observation(config, q, dq, gyro, quaternion, last_action, command, elapsed):
+    q = np.asarray(q, dtype=np.float64)
+    dq = np.asarray(dq, dtype=np.float64)
+    command = np.asarray(command, dtype=np.float64)
+    if q.shape != (18,) or dq.shape != (18,) or command.shape != (3,):
+        raise ValueError("SFYG state must be 18D and command must be 3D")
+    if np.linalg.norm(command) <= config.command_threshold:
+        phase = np.asarray((0.0, 1.0))
+    else:
+        angle = 2.0 * math.pi * ((elapsed * config.gait[0]) % 1.0)
+        phase = np.asarray((math.sin(angle), math.cos(angle)))
+    observation = np.concatenate(
+        (
+            np.asarray(gyro) * config.ang_vel_scale,
+            projected_gravity_from_wxyz(quaternion),
+            (q[:10] - config.default_q[:10]) * config.dof_pos_scale,
+            dq[:10] * config.dof_vel_scale,
+            np.asarray(last_action),
+            phase,
+            config.gait,
+        )
+    )
+    if observation.shape != (42,) or not np.all(np.isfinite(observation)):
+        raise ValueError("invalid 42D SFYG proprioceptive observation")
+    return np.clip(
+        observation, -config.observation_clip, config.observation_clip
+    ).astype(np.float32)
+
+
+def normalized_wrench_prediction(wrench):
+    wrench = np.asarray(wrench, dtype=np.float64)
+    if wrench.shape != (5, 6) or not np.all(np.isfinite(wrench)):
+        raise ValueError("wrench prediction must be finite with shape (5, 6)")
+    return (wrench * WRENCH_SCALE).reshape(-1).astype(np.float32)
+
+
+def compose_policy_input(config, encoder, proprio, wrench, command):
+    result = np.concatenate((encoder, proprio, normalized_wrench_prediction(wrench), command)).astype(np.float32)
+    if result.shape != (config.policy_input_size,) or not np.all(np.isfinite(result)):
+        raise ValueError("invalid 78D SFYG policy input")
+    return result
+
+
+def compose_joint_targets(config, actions, solution):
+    actions = np.asarray(actions, dtype=np.float64)
+    if actions.shape != (10,) or not np.all(np.isfinite(actions)):
+        raise ValueError("SFYG locomotion action must be finite and 10D")
+    targets = config.default_q.copy()
+    targets[:10] += config.action_scale * actions
+    targets[10:16] = solution.arm_position
+    return targets

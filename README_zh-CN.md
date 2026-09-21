@@ -11,8 +11,8 @@
 > <https://github.com/limx-tron2/tron2-rl-deploy-python>。
 > LimX 内部 GitLab 为镜像；Issue、PR 与安全报告请提交到 GitHub。
 
-面向 TRON2A 人形机器人（足底 `SF_TRON2A`、轮足 `WF_TRON2A` 与
-双臂足式 `DASF_TRON2A` 三种形态）的
+面向 TRON2A 人形机器人（足底 `SF_TRON2A`、单臂足式 `SFYG_TRON2A`、
+轮足 `WF_TRON2A` 与双臂足式 `DASF_TRON2A`）的
 强化学习**部署 / 推理**栈（Python 实现）。通过 `onnxruntime` 加载 ONNX
 策略，经 LimX 底层 SDK 下发关节目标，既可对接 MuJoCo 仿真，也可用于实机部署。
 
@@ -77,6 +77,10 @@
 - `controllers/SolefootController.py`：`SF_TRON2A` 推理与控制逻辑。
 - `controllers/WheelfootController.py`：`WF_TRON2A` 推理与控制逻辑。
 - `controllers/DASFController.py`：`DASF_TRON2A` 推理与控制逻辑。
+- `controllers/SFYGController.py`：10维腿部RL、6维OCS2机械臂和2维夹爪的
+  18关节组合控制器。
+- `controllers/sfyg_contract.py`：42维本体观测、30维future wrench与52列OCS2
+  轨迹契约。
 - `controllers/model/<ROBOT_TYPE>/`：每种机型的模型与配置文件目录。
 - `limxsdk-lowlevel/`：LimX SDK 及示例代码。
 
@@ -116,6 +120,12 @@ pip install limxsdk-lowlevel/python3/aarch64/limxsdk-*-py3-none-any.whl
 - `controllers/model/DASF_TRON2A/policy.onnx`
 - `controllers/model/DASF_TRON2A/encoder.onnx`
 - `controllers/model/DASF_TRON2A/params.yaml`
+- `controllers/model/SFYG_TRON2A/params.yaml`
+- `controllers/model/SFYG_TRON2A/encoder.onnx`（`420→3`，待WholeBody导出）
+- `controllers/model/SFYG_TRON2A/policy.onnx`（`78→10`，待WholeBody导出）
+
+SFYG输入顺序固定为 `encoder(3) + proprioception(42) + future wrench(30) +
+command(3)`。普通 `48→10` policy不兼容，控制器会拒绝错误维度。
 
 ## 4. 运行控制器
 
@@ -126,6 +136,7 @@ cd tron2-rl-deploy-python
 export ROBOT_TYPE=SF_TRON2A
 或 export ROBOT_TYPE=WF_TRON2A
 或 export ROBOT_TYPE=DASF_TRON2A
+或 export ROBOT_TYPE=SFYG_TRON2A
 ```
 
 ### Step 2: 启动控制器
@@ -146,6 +157,16 @@ python3 main.py
 # 已在该仓库的 SECURITY.md 中声明。）
 python3 main.py <robot-ip>
 ```
+
+SFYG第一阶段使用WholeBody Lab导出的52列OCS2轨迹：
+
+```bash
+export ROBOT_TYPE=SFYG_TRON2A
+python3 main.py 127.0.0.1 --ocs2-trajectory /path/to/trajectory.csv --start-controller
+```
+
+控制器以500Hz发布18维带关节名的 `RobotCmd`，每10周期以50Hz更新encoder、policy
+和OCS2采样。未加 `--start-controller` 时仅安全保持；启动但未提供轨迹会报错。
 
 ## 5. 与 MuJoCo 仿真联调
 
