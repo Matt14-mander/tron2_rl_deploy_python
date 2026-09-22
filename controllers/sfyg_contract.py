@@ -210,11 +210,12 @@ def build_proprio_observation(config, q, dq, gyro, quaternion, last_action, comm
     command = np.asarray(command, dtype=np.float64)
     if q.shape != (18,) or dq.shape != (18,) or command.shape != (3,):
         raise ValueError("SFYG state must be 18D and command must be 3D")
-    if np.linalg.norm(command) <= config.command_threshold:
-        phase = np.asarray((0.0, 1.0))
-    else:
-        angle = 2.0 * math.pi * ((elapsed * config.gait[0]) % 1.0)
-        phase = np.asarray((math.sin(angle), math.cos(angle)))
+    # Match the training observation exactly.  ``get_gait_phase`` in the
+    # Isaac Lab task advances from episode time even for a standing velocity
+    # command; freezing this at [0, 1] makes the 10-frame encoder history
+    # out-of-distribution.
+    angle = 2.0 * math.pi * ((elapsed * config.gait[0]) % 1.0)
+    phase = np.asarray((math.sin(angle), math.cos(angle)))
     observation = np.concatenate(
         (
             np.asarray(gyro) * config.ang_vel_scale,

@@ -184,6 +184,19 @@ class SFYGController:
         raise RuntimeError("timed out waiting for 18-joint SFYG state and IMU")
 
     def _move_to_default(self, start_q):
+        # The SFYG MuJoCo variant now starts in the exact training default
+        # pose and holds physics until this controller publishes.  Replaying a
+        # three-second static-PD stand phase would release gravity while the
+        # balance policy is still disabled.  When the measured pose is already
+        # aligned, send one complete command and enter policy inference on the
+        # next control tick.  A displaced/real robot still gets the smooth
+        # transition below.
+        if self.start_controller and np.max(
+            np.abs(np.asarray(start_q) - self.config.default_q)
+        ) <= 0.05:
+            self._publish(self.config.default_q)
+            print("Initial pose already aligned; entering balance policy immediately")
+            return
         started = time.monotonic()
         period = 1.0 / self.config.loop_frequency
         next_tick = started

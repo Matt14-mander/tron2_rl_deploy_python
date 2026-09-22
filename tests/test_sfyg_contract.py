@@ -49,6 +49,23 @@ class SfygContractTest(unittest.TestCase):
             policy_input[45:75].reshape(5, 6)[0], MODULE.WRENCH_SCALE
         )
 
+    def test_zero_velocity_command_keeps_training_time_phase(self):
+        elapsed = 0.25
+        proprio = MODULE.build_proprio_observation(
+            self.config,
+            self.config.default_q,
+            np.zeros(18),
+            np.zeros(3),
+            np.asarray((1.0, 0.0, 0.0, 0.0)),
+            np.zeros(10),
+            np.zeros(3),
+            elapsed,
+        )
+        angle = 2.0 * np.pi * ((elapsed * self.config.gait[0]) % 1.0)
+        np.testing.assert_allclose(
+            proprio[36:38], (np.sin(angle), np.cos(angle)), atol=1.0e-6
+        )
+
     def test_ocs2_arm_targets_do_not_replace_leg_policy_targets(self):
         solution = MODULE.Ocs2Solution(
             0.0,
