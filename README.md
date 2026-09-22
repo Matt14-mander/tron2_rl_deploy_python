@@ -180,7 +180,14 @@ Specify a robot or SDK target IP:
 python3 main.py <robot-ip>
 ```
 
-The first SFYG stage replays a 52-column trajectory exported by WholeBody Lab:
+SFYG can first validate zero-command, zero-wrench standing without OCS2:
+
+```bash
+export ROBOT_TYPE=SFYG_TRON2A
+python3 main.py 127.0.0.1 --start-controller
+```
+
+The next SFYG stage replays a 52-column trajectory exported by WholeBody Lab:
 
 ```bash
 export ROBOT_TYPE=SFYG_TRON2A
@@ -191,8 +198,9 @@ python3 main.py 127.0.0.1 \
 
 The controller publishes the complete named 18-joint `RobotCmd` at 500 Hz and
 updates the encoder, policy, and OCS2 sample at 50 Hz. Without
-`--start-controller` it holds the default pose; starting without a trajectory
-is rejected.
+`--start-controller` it holds the default pose. With `--start-controller` but
+without a trajectory, it runs the WholeBody locomotion policy with zero base
+command and zero future wrench while holding the arm/gripper default pose.
 
 ## 5. Working with the MuJoCo simulator
 

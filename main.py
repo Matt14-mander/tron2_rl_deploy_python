@@ -12,7 +12,7 @@ if __name__ == '__main__':
     parser.add_argument("--ocs2-trajectory", default=None,
                         help="SFYG: 52-column OCS2 trajectory CSV")
     parser.add_argument("--start-controller", action="store_true",
-                        help="start policy immediately (SFYG requires OCS2 trajectory)")
+                        help="start policy immediately (SFYG uses zero command/wrench without a trajectory)")
     parser.add_argument("--duration", type=float, default=0.0,
                         help="exit after N seconds; 0 runs until interrupted")
     args = parser.parse_args()

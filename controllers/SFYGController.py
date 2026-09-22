@@ -43,9 +43,6 @@ class SFYGController:
         self.trajectory = (
             Ocs2Trajectory(ocs2_trajectory) if ocs2_trajectory is not None else None
         )
-        if start_controller and self.trajectory is None:
-            raise ValueError("--start-controller requires --ocs2-trajectory for SFYG")
-
         self.encoder_session = self._load_session(self.config.encoder_file)
         self.policy_session = self._load_session(self.config.policy_file)
         self._validate_model_contract()
@@ -70,7 +67,10 @@ class SFYGController:
         print(f"Loaded SFYG parameters from {self.config.path}")
         print("Comm: one named 18-joint Tron2 channel")
         if self.trajectory is None:
-            print("OCS2: safe hold only; provide --ocs2-trajectory before WALK")
+            if self.start_controller:
+                print("Policy: zero-command, zero-wrench standing mode (no OCS2)")
+            else:
+                print("Policy idle: static default-pose hold")
         else:
             print(f"OCS2 trajectory: {self.trajectory.path}")
 
@@ -252,7 +252,7 @@ class SFYGController:
             initial_q, _, _, _ = self._wait_for_state()
             self._move_to_default(initial_q)
             if not self.start_controller:
-                print("SFYG is holding the default pose; use --start-controller with an OCS2 trajectory")
+                print("SFYG is holding the default pose; use --start-controller to enable balance policy")
             started = time.monotonic()
             next_tick = started
             control_period = 1.0 / self.config.loop_frequency
@@ -263,7 +263,10 @@ class SFYGController:
                 q, dq, quaternion, gyro = self._snapshot()
                 if self.start_controller and loop_count % self.config.decimation == 0:
                     elapsed = time.monotonic() - started
-                    last_solution = self.trajectory.sample(elapsed)
+                    if self.trajectory is None:
+                        last_solution = self._safe_hold_solution(last_targets)
+                    else:
+                        last_solution = self.trajectory.sample(elapsed)
                     proprio = build_proprio_observation(
                         self.config,
                         q,
