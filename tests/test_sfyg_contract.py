@@ -128,6 +128,17 @@ class SfygContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "limits"):
             MODULE.JointSpaceArmTest(near_limit, "arm4", -0.1)
 
+    def test_arm_test_guard_uses_static_sag_as_baseline(self):
+        baseline = np.array([-0.03, 0.13, 0.09, 0.02, 0.002, 0.0])
+        velocity = np.full(6, 0.07)
+        guard = MODULE.arm_test_tracking_ok
+        self.assertTrue(guard(baseline, velocity, 0.04))
+        self.assertTrue(guard(baseline + 0.03, velocity, 0.04, baseline))
+        self.assertFalse(guard(np.full(6, 0.46), velocity, 0.04))
+        self.assertFalse(guard(baseline, np.full(6, 18.0), 0.04))
+        self.assertFalse(guard(baseline + 0.13, velocity, 0.04, baseline))
+        self.assertFalse(guard(baseline, velocity, 0.5, baseline))
+
     def test_trajectory_terminal_hold_zeros_arm_and_base_velocity(self):
         rows = np.zeros((2, 52))
         rows[:, 0] = (0.0, 1.0)

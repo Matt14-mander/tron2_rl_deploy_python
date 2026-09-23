@@ -17,6 +17,7 @@ from .sfyg_contract import (
     Ocs2Solution,
     Ocs2Trajectory,
     SFYGPolicyConfig,
+    arm_test_tracking_ok,
     build_proprio_observation,
     compose_joint_targets,
     compose_policy_input,
@@ -372,6 +373,7 @@ class SFYGController:
             last_targets = self.config.default_q.copy()
             last_solution = self._safe_hold_solution(last_targets)
             last_arm_test_phase = None
+            arm_test_baseline_error = None
             while duration <= 0.0 or time.monotonic() - started < duration:
                 q, dq, quaternion, gyro = self._snapshot()
                 # Inference runs at the policy rate; commands publish every tick.
@@ -379,24 +381,41 @@ class SFYGController:
                     elapsed = time.monotonic() - started
                     if self.arm_test is not None:
                         phase = self.arm_test.phase(elapsed)
-                        arm_error = np.max(np.abs(q[10:16] - last_targets[10:16]))
+                        arm_error = q[10:16] - last_targets[10:16]
+                        arm_velocity = dq[10:16]
                         base_tilt = np.linalg.norm(
                             projected_gravity_from_wxyz(quaternion)[:2]
                         )
-                        if phase != "warmup" and last_arm_test_phase == "warmup" and (
-                            arm_error > 0.1 or base_tilt > 0.3
-                        ):
-                            print(
-                                "Arm test disarmed before motion: "
-                                f"arm_error={arm_error:.3f} rad, tilt_sin={base_tilt:.3f}"
-                            )
-                            self.arm_test = None
+                        if phase != "warmup" and arm_test_baseline_error is None:
+                            if phase != "outbound" or not arm_test_tracking_ok(
+                                arm_error, arm_velocity, base_tilt
+                            ):
+                                print(
+                                    "Arm test disarmed before motion: "
+                                    f"arm_error={np.max(np.abs(arm_error)):.3f} rad, "
+                                    f"arm_speed={np.max(np.abs(arm_velocity)):.3f} rad/s, "
+                                    f"tilt_sin={base_tilt:.3f}"
+                                )
+                                self.arm_test = None
+                            else:
+                                arm_test_baseline_error = arm_error.copy()
+                                print(
+                                    "Arm test baseline error: "
+                                    f"{np.round(arm_test_baseline_error, 3).tolist()} rad"
+                                )
                         elif phase in ("outbound", "hold", "return") and (
-                            arm_error > 0.2 or base_tilt > 0.45
+                            arm_test_baseline_error is not None
+                            and not arm_test_tracking_ok(
+                                arm_error, arm_velocity, base_tilt,
+                                arm_test_baseline_error,
+                            )
                         ):
                             print(
                                 "Arm test stopped: "
-                                f"arm_error={arm_error:.3f} rad, tilt_sin={base_tilt:.3f}"
+                                f"arm_error={np.max(np.abs(arm_error)):.3f} rad, "
+                                f"extra_error={np.max(np.abs(arm_error - arm_test_baseline_error)):.3f} rad, "
+                                f"arm_speed={np.max(np.abs(arm_velocity)):.3f} rad/s, "
+                                f"tilt_sin={base_tilt:.3f}"
                             )
                             self.arm_test = None
                         if self.arm_test is None:

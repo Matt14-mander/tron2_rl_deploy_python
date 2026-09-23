@@ -205,7 +205,10 @@ maximum displacement, joint-limit margin, and an aligned starting pose.
 `--arm-test-start-delay`, `--arm-test-move-duration`, and
 `--arm-test-hold-duration` adjust timing. Predicted future wrench is zero in
 this diagnostic mode, so it tests physical arm/locomotion coupling, not the
-complete wrench-aware pipeline. Do not combine it with `--ocs2-trajectory`.
+complete wrench-aware pipeline. The warmup records static arm tracking sag
+as a baseline; motion is stopped if additional error grows, while startup
+error above 0.2 rad or fast joint motion remains disallowed. Do not combine
+it with `--ocs2-trajectory`.
 
 The next SFYG stage replays a 52-column trajectory exported by WholeBody Lab:
 

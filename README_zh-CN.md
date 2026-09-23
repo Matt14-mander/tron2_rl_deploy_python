@@ -181,7 +181,9 @@ python3 main.py 127.0.0.1 --start-controller \
 `--arm-test-start-delay`、`--arm-test-move-duration`、
 `--arm-test-hold-duration` 调整时序。此模式不接入 OCS2 预测 wrench，
 policy 输入的 future wrench 为零，因此只用于机械臂运动耦合诊断，
-不代表完整的 wrench-aware 部署。不要与 `--ocs2-trajectory` 合用。
+不代表完整的 wrench-aware 部署。预热后会记录机械臂静态负载造成的跟踪偏差，
+运动时监测额外偏差；仍会拒绝超过 0.2 rad 的启动偏差或明显振荡。
+不要与 `--ocs2-trajectory` 合用。
 
 随后可使用WholeBody Lab导出的52列OCS2轨迹：
 

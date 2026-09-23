@@ -281,6 +281,31 @@ class JointSpaceArmTest:
         return solution
 
 
+def arm_test_tracking_ok(error, velocity, tilt_sin, baseline_error=None):
+    """Allow static gravity sag but reject new tracking error or fast motion."""
+    error = np.asarray(error, dtype=np.float64)
+    velocity = np.asarray(velocity, dtype=np.float64)
+    if error.shape != (6,) or velocity.shape != (6,) or not np.all(
+        np.isfinite(error)
+    ) or not np.all(np.isfinite(velocity)) or not np.isfinite(tilt_sin):
+        return False
+    if baseline_error is None:
+        return (
+            np.max(np.abs(error)) <= 0.2
+            and np.max(np.abs(velocity)) <= 0.5
+            and tilt_sin <= 0.3
+        )
+    baseline = np.asarray(baseline_error, dtype=np.float64)
+    if baseline.shape != (6,) or not np.all(np.isfinite(baseline)):
+        return False
+    return (
+        np.max(np.abs(error)) <= 0.3
+        and np.max(np.abs(error - baseline)) <= 0.12
+        and np.max(np.abs(velocity)) <= 1.0
+        and tilt_sin <= 0.45
+    )
+
+
 class SFYGPolicyConfig:
     """Validated SFYG runtime configuration."""
 
