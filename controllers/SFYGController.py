@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Paper-aligned SFYG controller: RL legs + OCS2 arm/wrench trajectory."""
+"""SFYG controller with a WholeBody leg policy and optional OCS2 trajectory."""
 
 import copy
 import os
@@ -23,7 +23,11 @@ from .sfyg_contract import (
 
 
 class SFYGController:
-    """Control all 18 SFYG joints over one named Tron2 SDK channel."""
+    """Control all 18 SFYG joints over one named Tron2 SDK channel.
+
+    The encoder reads proprioceptive history; the policy uses its output,
+    current proprioception, planar velocity command, and predicted base wrench.
+    """
 
     def __init__(
         self,
@@ -36,6 +40,8 @@ class SFYGController:
     ):
         if ort is None:
             raise RuntimeError("onnxruntime is required: pip install onnxruntime")
+
+        # Load the robot-specific configuration and optional OCS2 samples.
         self.robot = robot
         self.model_dir = os.path.abspath(os.path.join(model_dir, robot_type))
         self.config = SFYGPolicyConfig(os.path.join(self.model_dir, "params.yaml"))
@@ -49,13 +55,17 @@ class SFYGController:
         if self.base_command.shape != (3,) or not np.all(np.isfinite(self.base_command)):
             raise ValueError("--base-command must contain three finite values")
         if np.any(np.abs(self.base_command) > command_limit):
-            raise ValueError("--base-command exceeds training ranges: |vx|<=1, |vy|<=0.5, |wz|<=1.5")
+            raise ValueError(
+                "--base-command exceeds training ranges: "
+                "|vx|<=1, |vy|<=0.5, |wz|<=1.5"
+            )
         if self.trajectory is not None and np.any(self.base_command):
             raise ValueError("--base-command cannot be combined with --ocs2-trajectory")
         self.encoder_session = self._load_session(self.config.encoder_file)
         self.policy_session = self._load_session(self.config.policy_file)
         self._validate_model_contract()
 
+        # SDK callbacks update the latest joint state and IMU sample.
         from limxsdk import datatypes
 
         self._datatypes = datatypes
@@ -66,6 +76,8 @@ class SFYGController:
         self._state_error = None
         self._state_count = 0
         self._imu_count = 0
+
+        # Keep the policy's previous action and ten-step proprioceptive history.
         self.start_controller = bool(start_controller)
         self.last_action = np.zeros(10, dtype=np.float64)
         self.history = np.zeros(420, dtype=np.float32)
@@ -87,6 +99,7 @@ class SFYGController:
             print(f"OCS2 trajectory: {self.trajectory.path}")
 
     def _load_session(self, filename):
+        """Load an ONNX model with one CPU inference thread per session."""
         path = os.path.join(self.model_dir, filename)
         if not os.path.isfile(path):
             raise FileNotFoundError(
@@ -103,10 +116,12 @@ class SFYGController:
 
     @staticmethod
     def _feature_size(value_info):
+        """Read a tensor's final dimension when the ONNX shape is static."""
         shape = value_info.shape
         return shape[-1] if shape and isinstance(shape[-1], int) else None
 
     def _validate_model_contract(self):
+        """Check the encoder and policy dimensions before sending commands."""
         contracts = (
             ("encoder input", self.encoder_session.get_inputs(), 420),
             ("encoder output", self.encoder_session.get_outputs(), 3),
@@ -122,6 +137,7 @@ class SFYGController:
         print("Model contract: encoder 420->3, WholeBody policy 78->10")
 
     def _state_callback(self, state):
+        """Store the latest finite joint state in the configured wire order."""
         try:
             q = self._ordered_state(state.q, getattr(state, "motor_names", None))
             dq = self._ordered_state(state.dq, getattr(state, "motor_names", None))
@@ -136,6 +152,7 @@ class SFYGController:
         self._state_count += 1
 
     def _ordered_state(self, values, names):
+        """Reorder named SDK joints to the 18-joint SFYG command layout."""
         values = np.asarray(values, dtype=np.float64)
         if names:
             index = {name: i for i, name in enumerate(names)}
@@ -148,6 +165,7 @@ class SFYGController:
         return values
 
     def _imu_callback(self, imu):
+        """Keep the latest IMU sample when quaternion and gyro are present."""
         if len(imu.quat) < 4 or len(imu.gyro) < 3:
             return
         self.imu = copy.deepcopy(imu)
@@ -155,6 +173,7 @@ class SFYGController:
         self._imu_count += 1
 
     def _snapshot(self):
+        """Return fresh copies of the joint and IMU values for one control tick."""
         now = time.monotonic()
         if self._state_stamp is None or self._imu_stamp is None:
             raise RuntimeError(
@@ -173,6 +192,7 @@ class SFYGController:
         )
 
     def _make_command(self, q, dq=None, tau=None, kp=None, kd=None):
+        """Populate a named 18-joint SDK command with configured PD gains."""
         command = self._datatypes.RobotCmd()
         command.mode = [0.0] * 18
         command.q = np.asarray(q, dtype=np.float64).tolist()
@@ -187,6 +207,7 @@ class SFYGController:
         self.robot.publishRobotCmd(self._make_command(q, dq, tau, kp, kd))
 
     def _wait_for_state(self):
+        """Wait for both state streams before the first position command."""
         deadline = time.monotonic() + self.config.state_wait_timeout
         while time.monotonic() < deadline:
             try:
@@ -196,13 +217,9 @@ class SFYGController:
         raise RuntimeError("timed out waiting for 18-joint SFYG state and IMU")
 
     def _move_to_default(self, start_q):
-        # The SFYG MuJoCo variant now starts in the exact training default
-        # pose and holds physics until this controller publishes.  Replaying a
-        # three-second static-PD stand phase would release gravity while the
-        # balance policy is still disabled.  When the measured pose is already
-        # aligned, send one complete command and enter policy inference on the
-        # next control tick.  A displaced/real robot still gets the smooth
-        # transition below.
+        """Enter the policy immediately from its default pose, or interpolate."""
+        # MuJoCo starts at the training pose and waits for the first command.
+        # A displaced robot still uses the smooth transition below.
         if self.start_controller and np.max(
             np.abs(np.asarray(start_q) - self.config.default_q)
         ) <= 0.05:
@@ -223,6 +240,7 @@ class SFYGController:
 
     @staticmethod
     def _onnx_input(session, vector):
+        """Match the model's flat or batched input tensor shape."""
         value = np.asarray(vector, dtype=np.float32)
         info = session.get_inputs()[0]
         if len(info.shape) == 2:
@@ -230,6 +248,9 @@ class SFYGController:
         return {info.name: value}
 
     def _infer(self, proprio, solution):
+        """Update history, run both ONNX models, and clip the leg action."""
+        # Seed every history slot with the first observation, then shift by
+        # one proprioceptive frame on later policy steps.
         if not self._history_initialized:
             self.history[:] = np.tile(proprio, self.config.history_length)
             self._history_initialized = True
@@ -240,6 +261,8 @@ class SFYGController:
             None, self._onnx_input(self.encoder_session, self.history)
         )[0]
         encoder = np.asarray(encoder, dtype=np.float32).reshape(-1)
+
+        # OCS2 provides the planar command and predicted arm reaction wrench.
         policy_input = compose_policy_input(
             self.config,
             encoder,
@@ -256,6 +279,7 @@ class SFYGController:
         return np.clip(action, -self.config.action_clip, self.config.action_clip)
 
     def _safe_hold_solution(self, q):
+        """Use the current arm pose and zero wrench without an OCS2 sample."""
         return Ocs2Solution(
             time=0.0,
             arm_position=q[10:16].copy(),
@@ -266,6 +290,7 @@ class SFYGController:
         )
 
     def _publish_policy_targets(self, targets, solution):
+        """Combine leg position targets with OCS2 arm velocity and effort."""
         dq = np.zeros(18)
         tau = np.zeros(18)
         dq[10:16] = solution.arm_velocity
@@ -273,6 +298,7 @@ class SFYGController:
         self._publish(targets, dq=dq, tau=tau)
 
     def run(self, duration=0.0):
+        """Run the SDK command loop at the configured control frequency."""
         try:
             initial_q, _, _, _ = self._wait_for_state()
             self._move_to_default(initial_q)
@@ -286,6 +312,7 @@ class SFYGController:
             last_solution = self._safe_hold_solution(last_targets)
             while duration <= 0.0 or time.monotonic() - started < duration:
                 q, dq, quaternion, gyro = self._snapshot()
+                # Inference runs at the policy rate; commands publish every tick.
                 if self.start_controller and loop_count % self.config.decimation == 0:
                     elapsed = time.monotonic() - started
                     if self.trajectory is None:
@@ -315,6 +342,7 @@ class SFYGController:
         except KeyboardInterrupt:
             print("SFYG controller interrupted")
         finally:
+            # Release position stiffness while preserving damping on shutdown.
             try:
                 q, _, _, _ = self._snapshot()
                 self._publish(q, kp=np.zeros(18), kd=self.config.kd)
