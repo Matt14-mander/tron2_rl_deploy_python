@@ -55,6 +55,17 @@ def trajectory_columns():
 
 TRAJECTORY_COLUMNS = trajectory_columns()
 
+# SFYG_TRON2A URDF arm limits. Keep a margin so diagnostic motions cannot
+# reproduce the out-of-range arm4 target seen in an older OCS2 export.
+ARM_TEST_LIMITS = {
+    "arm1": (-2.6179938, 2.6179938),
+    "arm2": (0.0, 3.1415926),
+    "arm3": (-2.9670597, 0.0),
+    "arm4": (-1.5533430, 1.5533430),
+    "arm5": (-1.5533430, 1.5533430),
+    "arm6": (-2.0943951, 2.0943951),
+}
+
 
 class Ocs2Trajectory:
     """Validated interpolation of the WholeBody Lab 52-column export."""
@@ -172,6 +183,100 @@ class Ocs2Trajectory:
                     np.zeros((5, 6)) if zero_wrench else solution.wrench_prediction
                 ),
             )
+        validate_ocs2_solution(solution)
+        return solution
+
+
+class JointSpaceArmTest:
+    """Small, repeatable, single-joint round trip for sim2sim diagnosis."""
+
+    def __init__(
+        self,
+        default_arm_position,
+        joint,
+        delta,
+        start_delay=3.0,
+        move_duration=2.0,
+        hold_duration=1.0,
+    ):
+        self.default_arm_position = np.asarray(default_arm_position, dtype=np.float64)
+        if self.default_arm_position.shape != (6,) or not np.all(
+            np.isfinite(self.default_arm_position)
+        ):
+            raise ValueError("arm test requires six finite default joint positions")
+        if joint not in ARM_TEST_LIMITS:
+            raise ValueError("arm test joint must be arm1 through arm6")
+        self.joint = joint
+        self.joint_index = int(joint[-1]) - 1
+        self.delta = float(delta)
+        self.start_delay = float(start_delay)
+        self.move_duration = float(move_duration)
+        self.hold_duration = float(hold_duration)
+        if not np.isfinite(self.delta) or not 0.0 < abs(self.delta) <= 0.15:
+            raise ValueError("arm test delta must be nonzero and at most 0.15 rad")
+        if not np.isfinite(self.start_delay) or self.start_delay < 2.0:
+            raise ValueError("arm test start delay must be at least 2 s")
+        if not np.isfinite(self.move_duration) or self.move_duration < 1.5:
+            raise ValueError("arm test move duration must be at least 1.5 s")
+        if not np.isfinite(self.hold_duration) or self.hold_duration < 0.5:
+            raise ValueError("arm test hold duration must be at least 0.5 s")
+        if 1.875 * abs(self.delta) / self.move_duration > 0.25 or (
+            5.773503 * abs(self.delta) / self.move_duration**2 > 0.5
+        ):
+            raise ValueError("arm test motion exceeds 0.25 rad/s or 0.5 rad/s^2")
+        lower, upper = ARM_TEST_LIMITS[joint]
+        origin = self.default_arm_position[self.joint_index]
+        if not lower + 0.1 <= origin <= upper - 0.1 or not (
+            lower + 0.1 <= origin + self.delta <= upper - 0.1
+        ):
+            raise ValueError(f"arm test target exceeds {joint} limits with 0.1 rad margin")
+
+    @staticmethod
+    def _blend(elapsed, duration):
+        u = np.clip(elapsed / duration, 0.0, 1.0)
+        position = u**3 * (10.0 + u * (-15.0 + 6.0 * u))
+        velocity = 30.0 * u**2 * (1.0 - u) ** 2 / duration
+        return position, velocity
+
+    def phase(self, elapsed):
+        if elapsed < self.start_delay:
+            return "warmup"
+        if elapsed < self.start_delay + self.move_duration:
+            return "outbound"
+        if elapsed < self.start_delay + self.move_duration + self.hold_duration:
+            return "hold"
+        if elapsed < self.start_delay + 2.0 * self.move_duration + self.hold_duration:
+            return "return"
+        return "complete"
+
+    def sample(self, elapsed, base_command):
+        if not np.isfinite(elapsed) or elapsed < 0.0:
+            raise ValueError("arm test time must be finite and non-negative")
+        command = np.asarray(base_command, dtype=np.float64)
+        if command.shape != (3,) or not np.all(np.isfinite(command)):
+            raise ValueError("arm test base command must contain three finite values")
+        position = self.default_arm_position.copy()
+        velocity = np.zeros(6, dtype=np.float64)
+        phase = self.phase(elapsed)
+        if phase == "outbound":
+            blend, blend_rate = self._blend(elapsed - self.start_delay, self.move_duration)
+            position[self.joint_index] += self.delta * blend
+            velocity[self.joint_index] = self.delta * blend_rate
+        elif phase == "hold":
+            position[self.joint_index] += self.delta
+        elif phase == "return":
+            return_start = self.start_delay + self.move_duration + self.hold_duration
+            blend, blend_rate = self._blend(elapsed - return_start, self.move_duration)
+            position[self.joint_index] += self.delta * (1.0 - blend)
+            velocity[self.joint_index] = -self.delta * blend_rate
+        solution = Ocs2Solution(
+            time=float(elapsed),
+            arm_position=position,
+            arm_velocity=velocity,
+            arm_effort=np.zeros(6),
+            base_command=command.copy(),
+            wrench_prediction=np.zeros((5, 6)),
+        )
         validate_ocs2_solution(solution)
         return solution
 

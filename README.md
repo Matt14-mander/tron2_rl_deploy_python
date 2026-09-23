@@ -189,6 +189,24 @@ export ROBOT_TYPE=SFYG_TRON2A
 python3 main.py 127.0.0.1 --start-controller --base-command 0.5 0 0
 ```
 
+For a reproducible MuJoCo arm-motion test before OCS2, use one bounded joint
+round trip while retaining a fixed walking command:
+
+```bash
+python3 main.py 127.0.0.1 --start-controller \
+  --base-command -0.29 -0.08 0 \
+  --arm-test-joint arm2 --arm-test-delta 0.10
+```
+
+The default sequence walks for 3 s, moves one arm joint for 2 s, holds for
+1 s, then returns over 2 s. The other arm joints and gripper retain their
+default targets. The test is limited to the `127.0.0.1` simulator, 0.15 rad
+maximum displacement, joint-limit margin, and an aligned starting pose.
+`--arm-test-start-delay`, `--arm-test-move-duration`, and
+`--arm-test-hold-duration` adjust timing. Predicted future wrench is zero in
+this diagnostic mode, so it tests physical arm/locomotion coupling, not the
+complete wrench-aware pipeline. Do not combine it with `--ocs2-trajectory`.
+
 The next SFYG stage replays a 52-column trajectory exported by WholeBody Lab:
 
 ```bash

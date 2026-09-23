@@ -83,6 +83,51 @@ class SfygContractTest(unittest.TestCase):
         np.testing.assert_allclose(targets[10:16], solution.arm_position)
         np.testing.assert_allclose(targets[16:], self.config.default_q[16:])
 
+    def test_joint_space_arm_test_moves_one_joint_and_returns_smoothly(self):
+        origin = np.array([0.0, np.pi / 2, -1.4835299, 0.0, 0.0, 0.0])
+        motion = MODULE.JointSpaceArmTest(origin, "arm2", 0.1)
+        base_command = np.array([-0.29, -0.08, 0.0])
+        warmup = motion.sample(2.0, base_command)
+        outbound = motion.sample(4.0, base_command)
+        hold = motion.sample(5.5, base_command)
+        returning = motion.sample(7.0, base_command)
+        complete = motion.sample(9.0, base_command)
+
+        np.testing.assert_allclose(warmup.arm_position, origin)
+        np.testing.assert_allclose(warmup.arm_velocity, 0.0)
+        self.assertAlmostEqual(outbound.arm_position[1], origin[1] + 0.05)
+        self.assertAlmostEqual(outbound.arm_velocity[1], 0.09375)
+        np.testing.assert_allclose(hold.arm_position[1], origin[1] + 0.1)
+        np.testing.assert_allclose(hold.arm_velocity, 0.0)
+        self.assertAlmostEqual(returning.arm_position[1], origin[1] + 0.05)
+        self.assertAlmostEqual(returning.arm_velocity[1], -0.09375)
+        np.testing.assert_allclose(complete.arm_position, origin)
+        np.testing.assert_allclose(complete.arm_velocity, 0.0)
+        for solution in (warmup, outbound, hold, returning, complete):
+            np.testing.assert_allclose(solution.arm_position[[0, 2, 3, 4, 5]], origin[[0, 2, 3, 4, 5]])
+            np.testing.assert_allclose(solution.base_command, base_command)
+            np.testing.assert_allclose(solution.arm_effort, 0.0)
+            np.testing.assert_allclose(solution.wrench_prediction, 0.0)
+
+    def test_joint_space_arm_test_rejects_unsafe_requests(self):
+        origin = np.array([0.0, np.pi / 2, -1.4835299, 0.0, 0.0, 0.0])
+        for joint, delta, kwargs in (
+            ("arm4", -2.385, {}),
+            ("arm4", -0.2, {}),
+            ("arm4", 0.0, {}),
+            ("arm4", float("nan"), {}),
+            ("arm4", 0.1, {"start_delay": 0.0}),
+            ("arm4", 0.1, {"move_duration": 0.5}),
+            ("arm4", 0.1, {"hold_duration": 0.0}),
+        ):
+            with self.subTest(joint=joint, delta=delta, kwargs=kwargs):
+                with self.assertRaises(ValueError):
+                    MODULE.JointSpaceArmTest(origin, joint, delta, **kwargs)
+        near_limit = origin.copy()
+        near_limit[3] = -1.5
+        with self.assertRaisesRegex(ValueError, "limits"):
+            MODULE.JointSpaceArmTest(near_limit, "arm4", -0.1)
+
     def test_trajectory_terminal_hold_zeros_arm_and_base_velocity(self):
         rows = np.zeros((2, 52))
         rows[:, 0] = (0.0, 1.0)

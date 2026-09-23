@@ -166,6 +166,23 @@ export ROBOT_TYPE=SFYG_TRON2A
 python3 main.py 127.0.0.1 --start-controller --base-command 0.5 0 0
 ```
 
+在 MuJoCo 中单独验证机械臂运动与行走的耦合，可先使用关节空间测试模式，
+无需 OCS2 CSV：
+
+```bash
+python3 main.py 127.0.0.1 --start-controller \
+  --base-command -0.29 -0.08 0 \
+  --arm-test-joint arm2 --arm-test-delta 0.10
+```
+
+默认先行走 3 秒，随后单关节平滑移动 2 秒、保持 1 秒、用 2 秒返回默认目标；
+其他机械臂关节及夹爪保持默认目标。仅允许 `127.0.0.1` 仿真地址，位移
+不超过 0.15 rad，并检查关节限位及启动姿态；可用
+`--arm-test-start-delay`、`--arm-test-move-duration`、
+`--arm-test-hold-duration` 调整时序。此模式不接入 OCS2 预测 wrench，
+policy 输入的 future wrench 为零，因此只用于机械臂运动耦合诊断，
+不代表完整的 wrench-aware 部署。不要与 `--ocs2-trajectory` 合用。
+
 随后可使用WholeBody Lab导出的52列OCS2轨迹：
 
 ```bash

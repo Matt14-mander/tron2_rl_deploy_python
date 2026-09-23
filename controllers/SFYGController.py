@@ -13,12 +13,14 @@ except ImportError:
     ort = None
 
 from .sfyg_contract import (
+    JointSpaceArmTest,
     Ocs2Solution,
     Ocs2Trajectory,
     SFYGPolicyConfig,
     build_proprio_observation,
     compose_joint_targets,
     compose_policy_input,
+    projected_gravity_from_wxyz,
 )
 
 
@@ -41,6 +43,11 @@ class SFYGController:
         ocs2_terminal_command=None,
         ocs2_hold_arm=False,
         ocs2_zero_wrench=False,
+        arm_test_joint=None,
+        arm_test_delta=None,
+        arm_test_start_delay=3.0,
+        arm_test_move_duration=2.0,
+        arm_test_hold_duration=1.0,
     ):
         if ort is None:
             raise RuntimeError("onnxruntime is required: pip install onnxruntime")
@@ -53,6 +60,21 @@ class SFYGController:
             raise ValueError("SFYG params.yaml robot_variant mismatch")
         self.trajectory = (
             Ocs2Trajectory(ocs2_trajectory) if ocs2_trajectory is not None else None
+        )
+        if (arm_test_joint is None) != (arm_test_delta is None):
+            raise ValueError("arm test requires both --arm-test-joint and --arm-test-delta")
+        if arm_test_joint is not None and (self.trajectory is not None or not start_controller):
+            raise ValueError("arm test requires --start-controller and no OCS2 trajectory")
+        self.arm_test = (
+            JointSpaceArmTest(
+                self.config.default_q[10:16],
+                arm_test_joint,
+                arm_test_delta,
+                start_delay=arm_test_start_delay,
+                move_duration=arm_test_move_duration,
+                hold_duration=arm_test_hold_duration,
+            )
+            if arm_test_joint is not None else None
         )
         self.base_command = np.asarray(base_command, dtype=np.float64)
         command_limit = np.asarray((1.0, 0.5, 1.5), dtype=np.float64)
@@ -119,6 +141,13 @@ class SFYGController:
                     "Policy: fixed base command "
                     f"{self.base_command.tolist()}, zero wrench (no OCS2)"
                 )
+                if self.arm_test is not None:
+                    print(
+                        f"Arm test: {self.arm_test.joint}, delta={self.arm_test.delta:+.3f} rad, "
+                        f"start_delay={self.arm_test.start_delay:.1f}s, "
+                        f"move={self.arm_test.move_duration:.1f}s, "
+                        f"hold={self.arm_test.hold_duration:.1f}s, then return"
+                    )
             else:
                 print("Policy idle: static default-pose hold")
         else:
@@ -342,12 +371,48 @@ class SFYGController:
             loop_count = 0
             last_targets = self.config.default_q.copy()
             last_solution = self._safe_hold_solution(last_targets)
+            last_arm_test_phase = None
             while duration <= 0.0 or time.monotonic() - started < duration:
                 q, dq, quaternion, gyro = self._snapshot()
                 # Inference runs at the policy rate; commands publish every tick.
                 if self.start_controller and loop_count % self.config.decimation == 0:
                     elapsed = time.monotonic() - started
-                    if self.trajectory is None:
+                    if self.arm_test is not None:
+                        phase = self.arm_test.phase(elapsed)
+                        arm_error = np.max(np.abs(q[10:16] - last_targets[10:16]))
+                        base_tilt = np.linalg.norm(
+                            projected_gravity_from_wxyz(quaternion)[:2]
+                        )
+                        if phase != "warmup" and last_arm_test_phase == "warmup" and (
+                            arm_error > 0.1 or base_tilt > 0.3
+                        ):
+                            print(
+                                "Arm test disarmed before motion: "
+                                f"arm_error={arm_error:.3f} rad, tilt_sin={base_tilt:.3f}"
+                            )
+                            self.arm_test = None
+                        elif phase in ("outbound", "hold", "return") and (
+                            arm_error > 0.2 or base_tilt > 0.45
+                        ):
+                            print(
+                                "Arm test stopped: "
+                                f"arm_error={arm_error:.3f} rad, tilt_sin={base_tilt:.3f}"
+                            )
+                            self.arm_test = None
+                        if self.arm_test is None:
+                            last_solution = self._safe_hold_solution(last_targets)
+                        else:
+                            last_solution = self.arm_test.sample(elapsed, self.base_command)
+                            if phase != last_arm_test_phase:
+                                index = self.arm_test.joint_index
+                                print(
+                                    f"Arm test phase: {phase}; "
+                                    f"{self.arm_test.joint} target="
+                                    f"{last_solution.arm_position[index]:+.3f}, "
+                                    f"actual={q[10 + index]:+.3f} rad"
+                                )
+                                last_arm_test_phase = phase
+                    elif self.trajectory is None:
                         last_solution = self._safe_hold_solution(last_targets)
                     else:
                         last_solution = self.trajectory.sample_for_deployment(
