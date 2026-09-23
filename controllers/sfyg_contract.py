@@ -76,6 +76,12 @@ class Ocs2Trajectory:
             raise ValueError("OCS2 trajectory contains NaN or Inf")
         if abs(self.data[0, 0]) > 1.0e-9 or np.any(np.diff(self.data[:, 0]) <= 0):
             raise ValueError("OCS2 trajectory must start at zero and increase strictly")
+        self._terminal_hold_start = None
+        if (
+            np.allclose(self.data[-2, 1:7], self.data[-1, 1:7], rtol=0, atol=1e-9)
+            and np.allclose(self.data[-1, 7:13], 0.0, rtol=0, atol=1e-9)
+        ):
+            self._terminal_hold_start = float(self.data[-2, 0])
 
     @property
     def duration(self):
@@ -94,6 +100,11 @@ class Ocs2Trajectory:
             lower = max(0, upper - 1)
             alpha = (time_s - times[lower]) / (times[upper] - times[lower])
             row = (1.0 - alpha) * self.data[lower] + alpha * self.data[upper]
+        if self._terminal_hold_start is not None and time_s >= self._terminal_hold_start:
+            # The export repeats its last arm position for the terminal hold.
+            # Interpolating a nonzero terminal MPC velocity into that fixed
+            # position would keep driving the arm through the hold interval.
+            row[7:13] = 0.0
         solution = Ocs2Solution(
             time=float(time_s),
             arm_position=row[1:7].copy(),

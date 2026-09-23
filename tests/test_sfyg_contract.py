@@ -102,6 +102,30 @@ class SfygContractTest(unittest.TestCase):
         np.testing.assert_allclose(solution.arm_velocity, 0.0)
         np.testing.assert_allclose(solution.base_command, 0.0)
 
+    def test_repeated_terminal_arm_position_does_not_replay_nonzero_velocity(self):
+        rows = np.zeros((3, 52))
+        rows[:, 0] = (0.0, 1.0, 1.5)
+        rows[0, 1:7] = 0.5
+        rows[1:, 1:7] = 0.75
+        rows[:2, 7:13] = 2.0
+        rows[1, 19:22] = -0.2
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "trajectory.csv"
+            np.savetxt(
+                path, rows, delimiter=",",
+                header=",".join(MODULE.TRAJECTORY_COLUMNS), comments="",
+            )
+            trajectory = MODULE.Ocs2Trajectory(path)
+            before_hold = trajectory.sample(0.5)
+            hold_start = trajectory.sample(1.0)
+            mid_hold = trajectory.sample(1.25)
+
+        np.testing.assert_allclose(before_hold.arm_velocity, 2.0)
+        np.testing.assert_allclose(hold_start.arm_velocity, 0.0)
+        np.testing.assert_allclose(mid_hold.arm_position, 0.75)
+        np.testing.assert_allclose(mid_hold.arm_velocity, 0.0)
+        np.testing.assert_allclose(mid_hold.base_command, -0.1)
+
     def test_ocs2_replay_warmup_terminal_command_and_ablation(self):
         rows = np.zeros((2, 52))
         rows[:, 0] = (0.0, 1.0)
