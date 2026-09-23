@@ -180,11 +180,13 @@ Specify a robot or SDK target IP:
 python3 main.py <robot-ip>
 ```
 
-SFYG can first validate zero-command, zero-wrench standing without OCS2:
+SFYG can first validate locomotion without OCS2.  A nonzero command is
+recommended because this checkpoint is stable in its walking distribution but
+does not reliably balance at an exact zero velocity command:
 
 ```bash
 export ROBOT_TYPE=SFYG_TRON2A
-python3 main.py 127.0.0.1 --start-controller
+python3 main.py 127.0.0.1 --start-controller --base-command 0.5 0 0
 ```
 
 The next SFYG stage replays a 52-column trajectory exported by WholeBody Lab:
@@ -199,8 +201,10 @@ python3 main.py 127.0.0.1 \
 The controller publishes the complete named 18-joint `RobotCmd` at 500 Hz and
 updates the encoder, policy, and OCS2 sample at 50 Hz. Without
 `--start-controller` it holds the default pose. With `--start-controller` but
-without a trajectory, it runs the WholeBody locomotion policy with zero base
-command and zero future wrench while holding the arm/gripper default pose.
+without a trajectory, it runs the WholeBody locomotion policy with the fixed
+`--base-command VX VY WZ` and zero future wrench while holding the arm/gripper
+default pose. The command must remain inside the training ranges
+`|vx|<=1`, `|vy|<=0.5`, and `|wz|<=1.5`.
 
 ## 5. Working with the MuJoCo simulator
 

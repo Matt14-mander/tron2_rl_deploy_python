@@ -12,7 +12,10 @@ if __name__ == '__main__':
     parser.add_argument("--ocs2-trajectory", default=None,
                         help="SFYG: 52-column OCS2 trajectory CSV")
     parser.add_argument("--start-controller", action="store_true",
-                        help="start policy immediately (SFYG uses zero command/wrench without a trajectory)")
+                        help="start policy immediately")
+    parser.add_argument("--base-command", nargs=3, type=float,
+                        metavar=("VX", "VY", "WZ"), default=(0.0, 0.0, 0.0),
+                        help="SFYG velocity command without OCS2 (m/s, m/s, rad/s)")
     parser.add_argument("--duration", type=float, default=0.0,
                         help="exit after N seconds; 0 runs until interrupted")
     args = parser.parse_args()
@@ -62,6 +65,7 @@ if __name__ == '__main__':
             robot_type,
             start_controller=args.start_controller,
             ocs2_trajectory=args.ocs2_trajectory,
+            base_command=args.base_command,
         )
         controller.run(duration=args.duration)
     elif robot_type == "WF_TRON2A":

@@ -158,7 +158,15 @@ python3 main.py
 python3 main.py <robot-ip>
 ```
 
-SFYG第一阶段使用WholeBody Lab导出的52列OCS2轨迹：
+SFYG可先不接OCS2，用固定速度命令验证行走。当前checkpoint在行走分布内稳定，
+但精确零速度命令下不能可靠保持平衡，因此建议先使用前进命令：
+
+```bash
+export ROBOT_TYPE=SFYG_TRON2A
+python3 main.py 127.0.0.1 --start-controller --base-command 0.5 0 0
+```
+
+随后可使用WholeBody Lab导出的52列OCS2轨迹：
 
 ```bash
 export ROBOT_TYPE=SFYG_TRON2A
@@ -166,7 +174,9 @@ python3 main.py 127.0.0.1 --ocs2-trajectory /path/to/trajectory.csv --start-cont
 ```
 
 控制器以500Hz发布18维带关节名的 `RobotCmd`，每10周期以50Hz更新encoder、policy
-和OCS2采样。未加 `--start-controller` 时仅安全保持；启动但未提供轨迹会报错。
+和OCS2采样。未加 `--start-controller` 时仅安全保持；不提供轨迹时，控制器使用
+`--base-command VX VY WZ` 的固定速度命令及零future wrench。速度命令范围为
+`|vx|<=1`、`|vy|<=0.5`、`|wz|<=1.5`。
 
 ## 5. 与 MuJoCo 仿真联调
 

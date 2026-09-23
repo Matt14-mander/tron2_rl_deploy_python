@@ -32,6 +32,7 @@ class SFYGController:
         robot_type,
         start_controller=False,
         ocs2_trajectory=None,
+        base_command=(0.0, 0.0, 0.0),
     ):
         if ort is None:
             raise RuntimeError("onnxruntime is required: pip install onnxruntime")
@@ -43,6 +44,14 @@ class SFYGController:
         self.trajectory = (
             Ocs2Trajectory(ocs2_trajectory) if ocs2_trajectory is not None else None
         )
+        self.base_command = np.asarray(base_command, dtype=np.float64)
+        command_limit = np.asarray((1.0, 0.5, 1.5), dtype=np.float64)
+        if self.base_command.shape != (3,) or not np.all(np.isfinite(self.base_command)):
+            raise ValueError("--base-command must contain three finite values")
+        if np.any(np.abs(self.base_command) > command_limit):
+            raise ValueError("--base-command exceeds training ranges: |vx|<=1, |vy|<=0.5, |wz|<=1.5")
+        if self.trajectory is not None and np.any(self.base_command):
+            raise ValueError("--base-command cannot be combined with --ocs2-trajectory")
         self.encoder_session = self._load_session(self.config.encoder_file)
         self.policy_session = self._load_session(self.config.policy_file)
         self._validate_model_contract()
@@ -68,7 +77,10 @@ class SFYGController:
         print("Comm: one named 18-joint Tron2 channel")
         if self.trajectory is None:
             if self.start_controller:
-                print("Policy: zero-command, zero-wrench standing mode (no OCS2)")
+                print(
+                    "Policy: fixed base command "
+                    f"{self.base_command.tolist()}, zero wrench (no OCS2)"
+                )
             else:
                 print("Policy idle: static default-pose hold")
         else:
@@ -249,7 +261,7 @@ class SFYGController:
             arm_position=q[10:16].copy(),
             arm_velocity=np.zeros(6),
             arm_effort=np.zeros(6),
-            base_command=np.zeros(3),
+            base_command=self.base_command.copy(),
             wrench_prediction=np.zeros((5, 6)),
         )
 
