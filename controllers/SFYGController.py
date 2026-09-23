@@ -37,6 +37,10 @@ class SFYGController:
         start_controller=False,
         ocs2_trajectory=None,
         base_command=(0.0, 0.0, 0.0),
+        ocs2_start_delay=0.0,
+        ocs2_terminal_command=None,
+        ocs2_hold_arm=False,
+        ocs2_zero_wrench=False,
     ):
         if ort is None:
             raise RuntimeError("onnxruntime is required: pip install onnxruntime")
@@ -61,6 +65,28 @@ class SFYGController:
             )
         if self.trajectory is not None and np.any(self.base_command):
             raise ValueError("--base-command cannot be combined with --ocs2-trajectory")
+        self.ocs2_start_delay = float(ocs2_start_delay)
+        if not np.isfinite(self.ocs2_start_delay) or self.ocs2_start_delay < 0.0:
+            raise ValueError("--ocs2-start-delay must be finite and non-negative")
+        self.ocs2_terminal_command = (
+            None if ocs2_terminal_command is None
+            else np.asarray(ocs2_terminal_command, dtype=np.float64)
+        )
+        if self.ocs2_terminal_command is not None and (
+            self.ocs2_terminal_command.shape != (3,)
+            or not np.all(np.isfinite(self.ocs2_terminal_command))
+            or np.any(np.abs(self.ocs2_terminal_command) > command_limit)
+        ):
+            raise ValueError("--ocs2-terminal-command exceeds policy training ranges")
+        self.ocs2_hold_arm = bool(ocs2_hold_arm)
+        self.ocs2_zero_wrench = bool(ocs2_zero_wrench)
+        if self.trajectory is None and (
+            self.ocs2_start_delay > 0.0
+            or self.ocs2_terminal_command is not None
+            or self.ocs2_hold_arm
+            or self.ocs2_zero_wrench
+        ):
+            raise ValueError("OCS2 replay options require --ocs2-trajectory")
         self.encoder_session = self._load_session(self.config.encoder_file)
         self.policy_session = self._load_session(self.config.policy_file)
         self._validate_model_contract()
@@ -97,6 +123,12 @@ class SFYGController:
                 print("Policy idle: static default-pose hold")
         else:
             print(f"OCS2 trajectory: {self.trajectory.path}")
+            print(
+                f"OCS2 replay: start_delay={self.ocs2_start_delay:.2f}s, "
+                f"terminal_command={self.ocs2_terminal_command}, "
+                f"hold_arm={self.ocs2_hold_arm}, "
+                f"zero_wrench={self.ocs2_zero_wrench}"
+            )
 
     def _load_session(self, filename):
         """Load an ONNX model with one CPU inference thread per session."""
@@ -318,7 +350,14 @@ class SFYGController:
                     if self.trajectory is None:
                         last_solution = self._safe_hold_solution(last_targets)
                     else:
-                        last_solution = self.trajectory.sample(elapsed)
+                        last_solution = self.trajectory.sample_for_deployment(
+                            elapsed,
+                            q[10:16],
+                            start_delay=self.ocs2_start_delay,
+                            terminal_command=self.ocs2_terminal_command,
+                            hold_arm=self.ocs2_hold_arm,
+                            zero_wrench=self.ocs2_zero_wrench,
+                        )
                     proprio = build_proprio_observation(
                         self.config,
                         q,

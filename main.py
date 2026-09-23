@@ -11,6 +11,15 @@ if __name__ == '__main__':
     parser.add_argument("--sdk", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--ocs2-trajectory", default=None,
                         help="SFYG: 52-column OCS2 trajectory CSV")
+    parser.add_argument("--ocs2-start-delay", type=float, default=0.0,
+                        help="SFYG: seconds to stabilize before OCS2 arm motion")
+    parser.add_argument("--ocs2-terminal-command", nargs=3, type=float, default=None,
+                        metavar=("VX", "VY", "WZ"),
+                        help="SFYG: walking command after OCS2 trajectory ends")
+    parser.add_argument("--ocs2-hold-arm", action="store_true",
+                        help="SFYG diagnostic: replay base command and wrench, hold arm")
+    parser.add_argument("--ocs2-zero-wrench", action="store_true",
+                        help="SFYG diagnostic: replay base command and arm, zero policy wrench")
     parser.add_argument("--start-controller", action="store_true",
                         help="start policy immediately")
     parser.add_argument("--base-command", nargs=3, type=float,
@@ -66,6 +75,10 @@ if __name__ == '__main__':
             start_controller=args.start_controller,
             ocs2_trajectory=args.ocs2_trajectory,
             base_command=args.base_command,
+            ocs2_start_delay=args.ocs2_start_delay,
+            ocs2_terminal_command=args.ocs2_terminal_command,
+            ocs2_hold_arm=args.ocs2_hold_arm,
+            ocs2_zero_wrench=args.ocs2_zero_wrench,
         )
         controller.run(duration=args.duration)
     elif robot_type == "WF_TRON2A":

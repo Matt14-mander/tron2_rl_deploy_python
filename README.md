@@ -195,8 +195,21 @@ The next SFYG stage replays a 52-column trajectory exported by WholeBody Lab:
 export ROBOT_TYPE=SFYG_TRON2A
 python3 main.py 127.0.0.1 \
   --ocs2-trajectory /path/to/trajectory.csv \
+  --ocs2-start-delay 1.0 \
+  --ocs2-terminal-command -0.25 0 0 \
   --start-controller
 ```
+
+`--ocs2-start-delay` holds the measured arm pose, zero arm velocity/effort, and
+zero predicted wrench while the walking policy settles on the trajectory's
+first base command. The default is zero delay. With
+`--ocs2-terminal-command`, the base command transitions smoothly over the
+final 0.5 s of the trajectory and remains at that value afterward; without it,
+the original CSV terminal zero command is used. These options match the
+timing used by the Isaac Lab offline rollout collector. To isolate a fall,
+`--ocs2-hold-arm` keeps the arm stationary while replaying the base command
+and predicted wrench, and `--ocs2-zero-wrench` replays arm motion with zero
+predicted wrench. Both are diagnostic options, not full OCS2 playback.
 
 The controller publishes the complete named 18-joint `RobotCmd` at 500 Hz and
 updates the encoder, policy, and OCS2 sample at 50 Hz. Without

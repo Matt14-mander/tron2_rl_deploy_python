@@ -105,6 +105,65 @@ class Ocs2Trajectory:
         validate_ocs2_solution(solution)
         return solution
 
+    def sample_for_deployment(
+        self,
+        elapsed,
+        arm_position,
+        start_delay=0.0,
+        terminal_command=None,
+        terminal_transition=0.5,
+        hold_arm=False,
+        zero_wrench=False,
+    ):
+        """Replay an OCS2 plan with optional startup, terminal, and diagnostic phases."""
+        playback_time = max(0.0, elapsed - start_delay)
+        solution = self.sample(playback_time)
+
+        if elapsed < start_delay:
+            # Establish policy history before moving the arm. Keep the first
+            # planned base command, which may already be a stable walking gait.
+            solution = Ocs2Solution(
+                time=solution.time,
+                arm_position=np.asarray(arm_position, dtype=np.float64).copy(),
+                arm_velocity=np.zeros(6),
+                arm_effort=np.zeros(6),
+                base_command=solution.base_command,
+                wrench_prediction=np.zeros((5, 6)),
+            )
+        elif terminal_command is not None:
+            # Match the Isaac Lab rollout's smooth transition near the end.
+            transition_start = max(0.0, self.duration - terminal_transition)
+            alpha = np.clip(
+                (playback_time - transition_start) / terminal_transition, 0.0, 1.0
+            )
+            smooth = alpha * alpha * (3.0 - 2.0 * alpha)
+            solution = Ocs2Solution(
+                time=solution.time,
+                arm_position=solution.arm_position,
+                arm_velocity=solution.arm_velocity,
+                arm_effort=solution.arm_effort,
+                base_command=(1.0 - smooth) * solution.base_command
+                + smooth * np.asarray(terminal_command, dtype=np.float64),
+                wrench_prediction=solution.wrench_prediction,
+            )
+
+        if hold_arm or zero_wrench:
+            solution = Ocs2Solution(
+                time=solution.time,
+                arm_position=(
+                    np.asarray(arm_position, dtype=np.float64).copy()
+                    if hold_arm else solution.arm_position
+                ),
+                arm_velocity=np.zeros(6) if hold_arm else solution.arm_velocity,
+                arm_effort=np.zeros(6) if hold_arm else solution.arm_effort,
+                base_command=solution.base_command,
+                wrench_prediction=(
+                    np.zeros((5, 6)) if zero_wrench else solution.wrench_prediction
+                ),
+            )
+        validate_ocs2_solution(solution)
+        return solution
+
 
 class SFYGPolicyConfig:
     """Validated SFYG runtime configuration."""

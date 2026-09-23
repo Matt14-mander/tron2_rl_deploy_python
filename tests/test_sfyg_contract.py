@@ -102,6 +102,63 @@ class SfygContractTest(unittest.TestCase):
         np.testing.assert_allclose(solution.arm_velocity, 0.0)
         np.testing.assert_allclose(solution.base_command, 0.0)
 
+    def test_ocs2_replay_warmup_terminal_command_and_ablation(self):
+        rows = np.zeros((2, 52))
+        rows[:, 0] = (0.0, 1.0)
+        rows[0, 1:7] = 0.5
+        rows[1, 1:7] = 0.75
+        rows[:, 7:13] = 2.0
+        rows[:, 13:19] = 3.0
+        rows[0, 19:22] = (-0.3, -0.08, 0.0)
+        rows[1, 19:22] = (-0.6, 0.0, 0.0)
+        rows[:, 22:52] = 4.0
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "trajectory.csv"
+            np.savetxt(
+                path, rows, delimiter=",",
+                header=",".join(MODULE.TRAJECTORY_COLUMNS), comments="",
+            )
+            trajectory = MODULE.Ocs2Trajectory(path)
+            arm_position = np.full(6, 0.25)
+            options = dict(
+                start_delay=1.0,
+                terminal_command=np.array((-0.25, 0.0, 0.0)),
+            )
+
+            warmup = trajectory.sample_for_deployment(0.5, arm_position, **options)
+            np.testing.assert_allclose(warmup.arm_position, arm_position)
+            np.testing.assert_allclose(warmup.arm_velocity, 0.0)
+            np.testing.assert_allclose(warmup.arm_effort, 0.0)
+            np.testing.assert_allclose(warmup.base_command, rows[0, 19:22])
+            np.testing.assert_allclose(warmup.wrench_prediction, 0.0)
+
+            motion = trajectory.sample_for_deployment(1.0, arm_position, **options)
+            np.testing.assert_allclose(motion.arm_position, 0.5)
+            np.testing.assert_allclose(motion.arm_velocity, 2.0)
+            np.testing.assert_allclose(motion.wrench_prediction, 4.0)
+
+            transition = trajectory.sample_for_deployment(1.75, arm_position, **options)
+            np.testing.assert_allclose(
+                transition.base_command, (-0.3875, -0.01, 0.0)
+            )
+
+            terminal = trajectory.sample_for_deployment(2.0, arm_position, **options)
+            np.testing.assert_allclose(terminal.arm_velocity, 0.0)
+            np.testing.assert_allclose(terminal.base_command, (-0.25, 0.0, 0.0))
+
+            wrench_only = trajectory.sample_for_deployment(
+                0.25, arm_position, hold_arm=True
+            )
+            np.testing.assert_allclose(wrench_only.arm_position, arm_position)
+            np.testing.assert_allclose(wrench_only.arm_effort, 0.0)
+            np.testing.assert_allclose(wrench_only.wrench_prediction, 4.0)
+
+            arm_only = trajectory.sample_for_deployment(
+                0.25, arm_position, zero_wrench=True
+            )
+            np.testing.assert_allclose(arm_only.arm_position, 0.5625)
+            np.testing.assert_allclose(arm_only.wrench_prediction, 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()
