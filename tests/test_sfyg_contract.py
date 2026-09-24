@@ -191,8 +191,9 @@ class SfygContractTest(unittest.TestCase):
         rows = np.zeros((2, 52))
         rows[:, 0] = (0.0, 1.0)
         rows[:, 1:7] = 0.5
+        rows[:, 3] = -0.5
         rows[:, 7:13] = 2.0
-        rows[:, 19:22] = 3.0
+        rows[:, 19:22] = 0.3
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "trajectory.csv"
             np.savetxt(
@@ -211,6 +212,8 @@ class SfygContractTest(unittest.TestCase):
         rows[:, 0] = (0.0, 1.0, 1.5)
         rows[0, 1:7] = 0.5
         rows[1:, 1:7] = 0.75
+        rows[0, 3] = -0.5
+        rows[1:, 3] = -0.75
         rows[:2, 7:13] = 2.0
         rows[1, 19:22] = -0.2
         with tempfile.TemporaryDirectory() as directory:
@@ -226,7 +229,7 @@ class SfygContractTest(unittest.TestCase):
 
         np.testing.assert_allclose(before_hold.arm_velocity, 2.0)
         np.testing.assert_allclose(hold_start.arm_velocity, 0.0)
-        np.testing.assert_allclose(mid_hold.arm_position, 0.75)
+        np.testing.assert_allclose(mid_hold.arm_position, [0.75, 0.75, -0.75, 0.75, 0.75, 0.75])
         np.testing.assert_allclose(mid_hold.arm_velocity, 0.0)
         np.testing.assert_allclose(mid_hold.base_command, -0.1)
 
@@ -235,6 +238,8 @@ class SfygContractTest(unittest.TestCase):
         rows[:, 0] = (0.0, 1.0)
         rows[0, 1:7] = 0.5
         rows[1, 1:7] = 0.75
+        rows[0, 3] = -0.5
+        rows[1, 3] = -0.75
         rows[:, 7:13] = 2.0
         rows[:, 13:19] = 3.0
         rows[0, 19:22] = (-0.3, -0.08, 0.0)
@@ -261,7 +266,7 @@ class SfygContractTest(unittest.TestCase):
             np.testing.assert_allclose(warmup.wrench_prediction, 0.0)
 
             motion = trajectory.sample_for_deployment(1.0, arm_position, **options)
-            np.testing.assert_allclose(motion.arm_position, 0.5)
+            np.testing.assert_allclose(motion.arm_position, [0.5, 0.5, -0.5, 0.5, 0.5, 0.5])
             np.testing.assert_allclose(motion.arm_velocity, 2.0)
             np.testing.assert_allclose(motion.wrench_prediction, 4.0)
 
@@ -284,8 +289,51 @@ class SfygContractTest(unittest.TestCase):
             arm_only = trajectory.sample_for_deployment(
                 0.25, arm_position, zero_wrench=True
             )
-            np.testing.assert_allclose(arm_only.arm_position, 0.5625)
+            np.testing.assert_allclose(arm_only.arm_position, [0.5625, 0.5625, -0.5625, 0.5625, 0.5625, 0.5625])
             np.testing.assert_allclose(arm_only.wrench_prediction, 0.0)
+
+    def test_trajectory_rejects_joint_and_base_limit_violations_on_load(self):
+        nominal = np.array([0.0, np.pi / 2, -1.4835299, 0.0, 0.0, 0.0])
+        cases = (
+            (4, -2.385, "arm4 position"),
+            (4, -1.51, "arm4 position"),
+            (8, 5.01, "arm2 velocity"),
+            (14, 100.01, "arm2 effort"),
+            (19, 1.01, "base_vx"),
+            (20, 0.51, "base_vy"),
+            (21, 1.51, "base_wz"),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "trajectory.csv"
+            for column, value, message in cases:
+                with self.subTest(column=column):
+                    rows = np.zeros((2, 52))
+                    rows[:, 0] = (0.0, 1.0)
+                    rows[:, 1:7] = nominal
+                    rows[1, column] = value
+                    np.savetxt(
+                        path, rows, delimiter=",",
+                        header=",".join(MODULE.TRAJECTORY_COLUMNS), comments="",
+                    )
+                    with self.assertRaisesRegex(ValueError, message + r" at t=1\.000s"):
+                        MODULE.Ocs2Trajectory(path)
+
+    def test_trajectory_accepts_export_limit_boundaries(self):
+        rows = np.zeros((2, 52))
+        rows[:, 0] = (0.0, 1.0)
+        rows[:, 1:7] = [0.0, np.pi / 2, -1.4835299, 0.0, 0.0, 0.0]
+        rows[1, 4] = MODULE.ARM_TEST_LIMITS["arm4"][0] + 0.05
+        rows[1, 8] = 5.0
+        rows[1, 14] = 100.0
+        rows[1, 19:22] = (1.0, -0.5, 1.5)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "trajectory.csv"
+            np.savetxt(
+                path, rows, delimiter=",",
+                header=",".join(MODULE.TRAJECTORY_COLUMNS), comments="",
+            )
+            trajectory = MODULE.Ocs2Trajectory(path)
+        self.assertEqual(trajectory.duration, 1.0)
 
 
 if __name__ == "__main__":

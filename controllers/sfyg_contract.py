@@ -66,6 +66,14 @@ ARM_TEST_LIMITS = {
     "arm6": (-2.0943951, 2.0943951),
 }
 
+# Mirror the OCS2 export checks when loading a trajectory on the deployment
+# side, so older CSVs cannot bypass the corrected exporter's safety limits.
+ARM_TRAJECTORY_POSITION_MARGIN = 0.05
+ARM_TRAJECTORY_VELOCITY_LIMIT = 5.0
+ARM_TRAJECTORY_EFFORT_LIMIT = 100.0
+BASE_COMMAND_LIMITS = np.asarray((1.0, 0.5, 1.5), dtype=np.float64)
+TRAJECTORY_LIMIT_TOLERANCE = 1.0e-6
+
 
 class Ocs2Trajectory:
     """Validated interpolation of the WholeBody Lab 52-column export."""
@@ -87,12 +95,59 @@ class Ocs2Trajectory:
             raise ValueError("OCS2 trajectory contains NaN or Inf")
         if abs(self.data[0, 0]) > 1.0e-9 or np.any(np.diff(self.data[:, 0]) <= 0):
             raise ValueError("OCS2 trajectory must start at zero and increase strictly")
+        self._validate_limits()
         self._terminal_hold_start = None
         if (
             np.allclose(self.data[-2, 1:7], self.data[-1, 1:7], rtol=0, atol=1e-9)
             and np.allclose(self.data[-1, 7:13], 0.0, rtol=0, atol=1e-9)
         ):
             self._terminal_hold_start = float(self.data[-2, 0])
+
+    def _validate_limits(self):
+        """Reject unsafe legacy exports before any command reaches the robot."""
+        tolerance = TRAJECTORY_LIMIT_TOLERANCE
+        for index, (name, (lower, upper)) in enumerate(ARM_TEST_LIMITS.items()):
+            for field, values, lower_bound, upper_bound in (
+                (
+                    "position",
+                    self.data[:, 1 + index],
+                    lower + ARM_TRAJECTORY_POSITION_MARGIN,
+                    upper - ARM_TRAJECTORY_POSITION_MARGIN,
+                ),
+                (
+                    "velocity",
+                    self.data[:, 7 + index],
+                    -ARM_TRAJECTORY_VELOCITY_LIMIT,
+                    ARM_TRAJECTORY_VELOCITY_LIMIT,
+                ),
+                (
+                    "effort",
+                    self.data[:, 13 + index],
+                    -ARM_TRAJECTORY_EFFORT_LIMIT,
+                    ARM_TRAJECTORY_EFFORT_LIMIT,
+                ),
+            ):
+                invalid = np.flatnonzero(
+                    (values < lower_bound - tolerance) | (values > upper_bound + tolerance)
+                )
+                if invalid.size:
+                    row = int(invalid[0])
+                    raise ValueError(
+                        f"Unsafe OCS2 trajectory {self.path}: {name} {field} "
+                        f"at t={self.data[row, 0]:.3f}s is {values[row]:.6f}; "
+                        f"allowed [{lower_bound:.6f}, {upper_bound:.6f}]"
+                    )
+        for index, name in enumerate(("base_vx", "base_vy", "base_wz")):
+            values = self.data[:, 19 + index]
+            limit = BASE_COMMAND_LIMITS[index]
+            invalid = np.flatnonzero(np.abs(values) > limit + tolerance)
+            if invalid.size:
+                row = int(invalid[0])
+                raise ValueError(
+                    f"Unsafe OCS2 trajectory {self.path}: {name} "
+                    f"at t={self.data[row, 0]:.3f}s is {values[row]:.6f}; "
+                    f"allowed [{-limit:.6f}, {limit:.6f}]"
+                )
 
     @property
     def duration(self):
