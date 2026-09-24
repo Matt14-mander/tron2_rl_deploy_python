@@ -188,48 +188,75 @@ class Ocs2Trajectory:
 
 
 class JointSpaceArmTest:
-    """Small, repeatable, single-joint round trip for sim2sim diagnosis."""
+    """Small, repeatable, one- or two-joint round trip for sim2sim diagnosis."""
 
     def __init__(
         self,
         default_arm_position,
-        joint,
-        delta,
+        joint=None,
+        delta=None,
         start_delay=3.0,
         move_duration=2.0,
         hold_duration=1.0,
+        offsets=None,
     ):
         self.default_arm_position = np.asarray(default_arm_position, dtype=np.float64)
         if self.default_arm_position.shape != (6,) or not np.all(
             np.isfinite(self.default_arm_position)
         ):
             raise ValueError("arm test requires six finite default joint positions")
-        if joint not in ARM_TEST_LIMITS:
-            raise ValueError("arm test joint must be arm1 through arm6")
-        self.joint = joint
-        self.joint_index = int(joint[-1]) - 1
-        self.delta = float(delta)
+        single_requested = joint is not None or delta is not None
+        if single_requested == (offsets is not None):
+            raise ValueError("choose either one arm joint/delta or six arm offsets")
+        if single_requested:
+            if joint not in ARM_TEST_LIMITS or delta is None:
+                raise ValueError("arm test requires an arm1-arm6 joint and delta")
+            self.delta = float(delta)
+            if not np.isfinite(self.delta) or not 1.0e-9 < abs(self.delta) <= 0.15:
+                raise ValueError("arm test delta must be nonzero and at most 0.15 rad")
+            self.offsets = np.zeros(6, dtype=np.float64)
+            self.offsets[int(joint[-1]) - 1] = self.delta
+        else:
+            self.delta = None
+            self.offsets = np.asarray(offsets, dtype=np.float64)
+            if self.offsets.shape != (6,) or not np.all(np.isfinite(self.offsets)):
+                raise ValueError("multi-joint arm test requires six finite offsets")
+            active = np.flatnonzero(np.abs(self.offsets) > 1.0e-9)
+            if len(active) != 2 or np.max(np.abs(self.offsets)) > 0.10 or (
+                np.linalg.norm(self.offsets) > 0.12
+            ):
+                raise ValueError(
+                    "multi-joint arm test requires exactly two nonzero offsets, "
+                    "each <=0.10 rad and combined norm <=0.12 rad"
+                )
+        self.active_indices = np.flatnonzero(np.abs(self.offsets) > 1.0e-9)
+        self.joint = joint if single_requested else "multi"
+        self.joint_index = int(self.active_indices[0]) if single_requested else None
+        self.description = ", ".join(
+            f"arm{i + 1}={self.offsets[i]:+.3f} rad" for i in self.active_indices
+        )
         self.start_delay = float(start_delay)
         self.move_duration = float(move_duration)
         self.hold_duration = float(hold_duration)
-        if not np.isfinite(self.delta) or not 0.0 < abs(self.delta) <= 0.15:
-            raise ValueError("arm test delta must be nonzero and at most 0.15 rad")
         if not np.isfinite(self.start_delay) or self.start_delay < 2.0:
             raise ValueError("arm test start delay must be at least 2 s")
         if not np.isfinite(self.move_duration) or self.move_duration < 1.5:
             raise ValueError("arm test move duration must be at least 1.5 s")
         if not np.isfinite(self.hold_duration) or self.hold_duration < 0.5:
             raise ValueError("arm test hold duration must be at least 0.5 s")
-        if 1.875 * abs(self.delta) / self.move_duration > 0.25 or (
-            5.773503 * abs(self.delta) / self.move_duration**2 > 0.5
+        motion_norm = np.linalg.norm(self.offsets)
+        if 1.875 * motion_norm / self.move_duration > 0.25 or (
+            5.773503 * motion_norm / self.move_duration**2 > 0.5
         ):
             raise ValueError("arm test motion exceeds 0.25 rad/s or 0.5 rad/s^2")
-        lower, upper = ARM_TEST_LIMITS[joint]
-        origin = self.default_arm_position[self.joint_index]
-        if not lower + 0.1 <= origin <= upper - 0.1 or not (
-            lower + 0.1 <= origin + self.delta <= upper - 0.1
-        ):
-            raise ValueError(f"arm test target exceeds {joint} limits with 0.1 rad margin")
+        for i in self.active_indices:
+            name = f"arm{i + 1}"
+            lower, upper = ARM_TEST_LIMITS[name]
+            origin = self.default_arm_position[i]
+            if not lower + 0.1 <= origin <= upper - 0.1 or not (
+                lower + 0.1 <= origin + self.offsets[i] <= upper - 0.1
+            ):
+                raise ValueError(f"arm test target exceeds {name} limits with 0.1 rad margin")
 
     @staticmethod
     def _blend(elapsed, duration):
@@ -260,15 +287,15 @@ class JointSpaceArmTest:
         phase = self.phase(elapsed)
         if phase == "outbound":
             blend, blend_rate = self._blend(elapsed - self.start_delay, self.move_duration)
-            position[self.joint_index] += self.delta * blend
-            velocity[self.joint_index] = self.delta * blend_rate
+            position += self.offsets * blend
+            velocity = self.offsets * blend_rate
         elif phase == "hold":
-            position[self.joint_index] += self.delta
+            position += self.offsets
         elif phase == "return":
             return_start = self.start_delay + self.move_duration + self.hold_duration
             blend, blend_rate = self._blend(elapsed - return_start, self.move_duration)
-            position[self.joint_index] += self.delta * (1.0 - blend)
-            velocity[self.joint_index] = -self.delta * blend_rate
+            position += self.offsets * (1.0 - blend)
+            velocity = -self.offsets * blend_rate
         solution = Ocs2Solution(
             time=float(elapsed),
             arm_position=position,

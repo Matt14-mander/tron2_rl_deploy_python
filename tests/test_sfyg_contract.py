@@ -128,6 +128,54 @@ class SfygContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "limits"):
             MODULE.JointSpaceArmTest(near_limit, "arm4", -0.1)
 
+    def test_two_joint_arm_test_moves_smoothly_and_returns(self):
+        origin = np.array([0.0, np.pi / 2, -1.4835299, 0.0, 0.0, 0.0])
+        offsets = np.array([0.0, 0.05, 0.0, -0.05, 0.0, 0.0])
+        motion = MODULE.JointSpaceArmTest(origin, offsets=offsets)
+        np.testing.assert_array_equal(motion.active_indices, [1, 3])
+        command = np.array([-0.29, -0.08, 0.0])
+        for elapsed, fraction, direction in (
+            (2.0, 0.0, 0.0),
+            (4.0, 0.5, 1.875 / 2.0),
+            (5.5, 1.0, 0.0),
+            (7.0, 0.5, -1.875 / 2.0),
+            (9.0, 0.0, 0.0),
+        ):
+            with self.subTest(elapsed=elapsed):
+                sample = motion.sample(elapsed, command)
+                np.testing.assert_allclose(
+                    sample.arm_position, origin + fraction * offsets
+                )
+                np.testing.assert_allclose(
+                    sample.arm_velocity, direction * offsets
+                )
+                np.testing.assert_allclose(sample.arm_effort, 0.0)
+                np.testing.assert_allclose(sample.wrench_prediction, 0.0)
+                np.testing.assert_allclose(sample.base_command, command)
+
+    def test_two_joint_arm_test_rejects_invalid_offsets(self):
+        origin = np.array([0.0, np.pi / 2, -1.4835299, 0.0, 0.0, 0.0])
+        for offsets in (
+            [0, 0, 0, 0, 0, 0],
+            [0, 0.05, 0, 0, 0, 0],
+            [0, 0.05, 0, -0.05, 0.01, 0],
+            [0, 0.11, 0, -0.01, 0, 0],
+            [0, 0.10, 0, -0.10, 0, 0],
+            [0, float("nan"), 0, -0.05, 0, 0],
+            [0, 0.05, 0, -0.05, 0],
+        ):
+            with self.subTest(offsets=offsets):
+                with self.assertRaises(ValueError):
+                    MODULE.JointSpaceArmTest(origin, offsets=offsets)
+        with self.assertRaises(ValueError):
+            MODULE.JointSpaceArmTest(origin, "arm2", 0.05, offsets=[0, 0.05, 0, -0.05, 0, 0])
+        near_limit = origin.copy()
+        near_limit[3] = -1.5
+        with self.assertRaisesRegex(ValueError, "limits"):
+            MODULE.JointSpaceArmTest(
+                near_limit, offsets=[0, 0.05, 0, -0.05, 0, 0]
+            )
+
     def test_arm_test_guard_uses_static_sag_as_baseline(self):
         baseline = np.array([-0.03, 0.13, 0.09, 0.02, 0.002, 0.0])
         velocity = np.full(6, 0.07)

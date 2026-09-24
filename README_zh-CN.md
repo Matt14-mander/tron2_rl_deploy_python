@@ -175,9 +175,21 @@ python3 main.py 127.0.0.1 --start-controller \
   --arm-test-joint arm2 --arm-test-delta 0.10
 ```
 
-默认先行走 3 秒，随后单关节平滑移动 2 秒、保持 1 秒、用 2 秒返回默认目标；
-其他机械臂关节及夹爪保持默认目标。仅允许 `127.0.0.1` 仿真地址，位移
-不超过 0.15 rad，并检查关节限位及启动姿态；可用
+已通过单关节验证后，可用相同的时间曲线同时测试两个关节：
+
+```bash
+python3 main.py 127.0.0.1 --start-controller \
+  --base-command -0.29 -0.08 0 \
+  --arm-test-offsets 0 0.05 0 -0.05 0 0
+```
+
+六个偏移量依次对应 arm1–arm6；多关节模式要求恰好两个非零偏移，
+每个不超过 0.10 rad，组合范数不超过 0.12 rad，并逐关节检查限位。
+不能与 `--arm-test-joint/--arm-test-delta` 或 OCS2 CSV 同时使用。
+
+默认先行走 3 秒，随后所选关节平滑移动 2 秒、保持 1 秒、用 2 秒返回默认目标；
+其他机械臂关节及夹爪保持默认目标。仅允许 `127.0.0.1` 仿真地址，
+单关节模式位移不超过 0.15 rad，并检查关节限位及启动姿态；可用
 `--arm-test-start-delay`、`--arm-test-move-duration`、
 `--arm-test-hold-duration` 调整时序。此模式不接入 OCS2 预测 wrench，
 policy 输入的 future wrench 为零，因此只用于机械臂运动耦合诊断，

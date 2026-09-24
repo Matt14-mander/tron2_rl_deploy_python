@@ -198,10 +198,25 @@ python3 main.py 127.0.0.1 --start-controller \
   --arm-test-joint arm2 --arm-test-delta 0.10
 ```
 
-The default sequence walks for 3 s, moves one arm joint for 2 s, holds for
-1 s, then returns over 2 s. The other arm joints and gripper retain their
-default targets. The test is limited to the `127.0.0.1` simulator, 0.15 rad
-maximum displacement, joint-limit margin, and an aligned starting pose.
+After the single-joint checks pass, exercise two joints on the same smooth
+schedule:
+
+```bash
+python3 main.py 127.0.0.1 --start-controller \
+  --base-command -0.29 -0.08 0 \
+  --arm-test-offsets 0 0.05 0 -0.05 0 0
+```
+
+The six offsets correspond to arm1–arm6. Multi-joint mode requires exactly
+two nonzero offsets, each at most 0.10 rad, with combined norm at most
+0.12 rad and each target inside its joint limits. It cannot be combined with
+the single-joint flags or an OCS2 CSV.
+
+The default sequence walks for 3 s, moves the selected arm joints for 2 s,
+holds for 1 s, then returns over 2 s. The other arm joints and gripper retain
+their default targets. The test is limited to the `127.0.0.1` simulator, a
+0.15 rad maximum single-joint displacement, joint-limit margin, and an
+aligned starting pose.
 `--arm-test-start-delay`, `--arm-test-move-duration`, and
 `--arm-test-hold-duration` adjust timing. Predicted future wrench is zero in
 this diagnostic mode, so it tests physical arm/locomotion coupling, not the

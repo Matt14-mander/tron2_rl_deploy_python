@@ -24,6 +24,9 @@ if __name__ == '__main__':
                         help="SFYG sim2sim: move one arm joint out and back")
     parser.add_argument("--arm-test-delta", type=float,
                         help="SFYG sim2sim: signed arm joint displacement in radians (max 0.15)")
+    parser.add_argument("--arm-test-offsets", nargs=6, type=float,
+                        metavar=("ARM1", "ARM2", "ARM3", "ARM4", "ARM5", "ARM6"),
+                        help="SFYG sim2sim: six joint offsets; exactly two nonzero, bounded")
     parser.add_argument("--arm-test-start-delay", type=float, default=3.0,
                         help="SFYG sim2sim: initial walking warmup in seconds")
     parser.add_argument("--arm-test-move-duration", type=float, default=2.0,
@@ -52,9 +55,12 @@ if __name__ == '__main__':
     if robot_type not in ("SF_TRON2A", "SFYG_TRON2A", "WF_TRON2A", "DASF_TRON2A"):
         print(f"\033[31mError: unsupported ROBOT_TYPE='{robot_type}'\033[0m")
         sys.exit(1)
-    arm_test_requested = args.arm_test_joint is not None or args.arm_test_delta is not None
-    if arm_test_requested and (args.arm_test_joint is None or args.arm_test_delta is None):
+    single_arm_test = args.arm_test_joint is not None or args.arm_test_delta is not None
+    arm_test_requested = single_arm_test or args.arm_test_offsets is not None
+    if single_arm_test and (args.arm_test_joint is None or args.arm_test_delta is None):
         parser.error("arm test requires both --arm-test-joint and --arm-test-delta")
+    if single_arm_test and args.arm_test_offsets is not None:
+        parser.error("choose either --arm-test-offsets or --arm-test-joint/--arm-test-delta")
     if arm_test_requested and (robot_type != "SFYG_TRON2A" or args.robot_ip != "127.0.0.1"):
         parser.error("arm test is SFYG_TRON2A sim2sim-only (robot_ip must be 127.0.0.1)")
     if arm_test_requested and (args.ocs2_trajectory is not None or not args.start_controller):
@@ -98,6 +104,7 @@ if __name__ == '__main__':
             ocs2_zero_wrench=args.ocs2_zero_wrench,
             arm_test_joint=args.arm_test_joint,
             arm_test_delta=args.arm_test_delta,
+            arm_test_offsets=args.arm_test_offsets,
             arm_test_start_delay=args.arm_test_start_delay,
             arm_test_move_duration=args.arm_test_move_duration,
             arm_test_hold_duration=args.arm_test_hold_duration,

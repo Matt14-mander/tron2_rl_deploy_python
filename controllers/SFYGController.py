@@ -46,6 +46,7 @@ class SFYGController:
         ocs2_zero_wrench=False,
         arm_test_joint=None,
         arm_test_delta=None,
+        arm_test_offsets=None,
         arm_test_start_delay=3.0,
         arm_test_move_duration=2.0,
         arm_test_hold_duration=1.0,
@@ -64,7 +65,10 @@ class SFYGController:
         )
         if (arm_test_joint is None) != (arm_test_delta is None):
             raise ValueError("arm test requires both --arm-test-joint and --arm-test-delta")
-        if arm_test_joint is not None and (self.trajectory is not None or not start_controller):
+        if arm_test_offsets is not None and arm_test_joint is not None:
+            raise ValueError("choose either single-joint or multi-joint arm test")
+        arm_test_requested = arm_test_joint is not None or arm_test_offsets is not None
+        if arm_test_requested and (self.trajectory is not None or not start_controller):
             raise ValueError("arm test requires --start-controller and no OCS2 trajectory")
         self.arm_test = (
             JointSpaceArmTest(
@@ -74,8 +78,9 @@ class SFYGController:
                 start_delay=arm_test_start_delay,
                 move_duration=arm_test_move_duration,
                 hold_duration=arm_test_hold_duration,
+                offsets=arm_test_offsets,
             )
-            if arm_test_joint is not None else None
+            if arm_test_requested else None
         )
         self.base_command = np.asarray(base_command, dtype=np.float64)
         command_limit = np.asarray((1.0, 0.5, 1.5), dtype=np.float64)
@@ -144,7 +149,7 @@ class SFYGController:
                 )
                 if self.arm_test is not None:
                     print(
-                        f"Arm test: {self.arm_test.joint}, delta={self.arm_test.delta:+.3f} rad, "
+                        f"Arm test: {self.arm_test.description}, "
                         f"start_delay={self.arm_test.start_delay:.1f}s, "
                         f"move={self.arm_test.move_duration:.1f}s, "
                         f"hold={self.arm_test.hold_duration:.1f}s, then return"
@@ -423,12 +428,13 @@ class SFYGController:
                         else:
                             last_solution = self.arm_test.sample(elapsed, self.base_command)
                             if phase != last_arm_test_phase:
-                                index = self.arm_test.joint_index
+                                details = ", ".join(
+                                    f"arm{i + 1} target={last_solution.arm_position[i]:+.3f}, "
+                                    f"actual={q[10 + i]:+.3f}"
+                                    for i in self.arm_test.active_indices
+                                )
                                 print(
-                                    f"Arm test phase: {phase}; "
-                                    f"{self.arm_test.joint} target="
-                                    f"{last_solution.arm_position[index]:+.3f}, "
-                                    f"actual={q[10 + index]:+.3f} rad"
+                                    f"Arm test phase: {phase}; {details} rad"
                                 )
                                 last_arm_test_phase = phase
                     elif self.trajectory is None:
