@@ -148,6 +148,15 @@ Model files must be placed per robot variant at:
 The SFYG policy input order is `encoder(3) + proprioception(42) + normalized
 future wrench(30) + base command(3)`. An ordinary `48 -> 10` policy is rejected.
 
+Bounded SFYG OCS2 replay logs trajectory start, terminal hold, and normal
+control-loop completion separately. The controller sends a damping-only command
+when it stops, so do not judge post-exit balance as part of the replay. If a
+local MuJoCo run crashes during native SDK interpreter teardown, compare with
+`--sim-sdk-exit-workaround` (SFYG, `127.0.0.1`, positive `--duration` only).
+This bypasses native destructors after the final command; it is not for hardware
+and does not repair the underlying SDK. Without the workaround, Python
+`faulthandler` is enabled for local SFYG runs to assist crash diagnosis.
+
 ## 4. Running the controller
 
 ### Step 1: Enter the directory and set the robot variant

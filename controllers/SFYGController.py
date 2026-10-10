@@ -366,6 +366,9 @@ class SFYGController:
 
     def run(self, duration=0.0):
         """Run the SDK command loop at the configured control frequency."""
+        finished_normally = False
+        trajectory_completed = False
+        started = None
         try:
             initial_q, _, _, _ = self._wait_for_state()
             self._move_to_default(initial_q)
@@ -379,6 +382,7 @@ class SFYGController:
             last_solution = self._safe_hold_solution(last_targets)
             last_arm_test_phase = None
             arm_test_baseline_error = None
+            last_trajectory_phase = None
             while duration <= 0.0 or time.monotonic() - started < duration:
                 q, dq, quaternion, gyro = self._snapshot()
                 # Inference runs at the policy rate; commands publish every tick.
@@ -440,6 +444,13 @@ class SFYGController:
                     elif self.trajectory is None:
                         last_solution = self._safe_hold_solution(last_targets)
                     else:
+                        playback_time = max(0.0, elapsed - self.ocs2_start_delay)
+                        if elapsed < self.ocs2_start_delay:
+                            trajectory_phase = "warmup"
+                        elif playback_time < self.trajectory.duration:
+                            trajectory_phase = "motion"
+                        else:
+                            trajectory_phase = "terminal"
                         last_solution = self.trajectory.sample_for_deployment(
                             elapsed,
                             q[10:16],
@@ -448,6 +459,23 @@ class SFYGController:
                             hold_arm=self.ocs2_hold_arm,
                             zero_wrench=self.ocs2_zero_wrench,
                         )
+                        if trajectory_phase != last_trajectory_phase:
+                            if trajectory_phase == "motion":
+                                print(
+                                    "[INFO] OCS2 trajectory started: "
+                                    f"controller_elapsed={elapsed:.3f}s, "
+                                    f"trajectory_duration={self.trajectory.duration:.3f}s",
+                                    flush=True,
+                                )
+                            elif trajectory_phase == "terminal":
+                                trajectory_completed = True
+                                print(
+                                    "[INFO] OCS2 trajectory completed: "
+                                    f"controller_elapsed={elapsed:.3f}s; "
+                                    "holding terminal arm position",
+                                    flush=True,
+                                )
+                            last_trajectory_phase = trajectory_phase
                     proprio = build_proprio_observation(
                         self.config,
                         q,
@@ -468,6 +496,7 @@ class SFYGController:
                 if next_tick < time.monotonic() - control_period:
                     next_tick = time.monotonic()
                 time.sleep(max(0.0, next_tick - time.monotonic()))
+            finished_normally = True
         except KeyboardInterrupt:
             print("SFYG controller interrupted")
         finally:
@@ -475,5 +504,16 @@ class SFYGController:
             try:
                 q, _, _, _ = self._snapshot()
                 self._publish(q, kp=np.zeros(18), kd=self.config.kd)
+                print("[INFO] SFYG shutdown: damping command published", flush=True)
             except RuntimeError:
-                pass
+                print("[WARN] SFYG shutdown: no fresh state for damping command", flush=True)
+        if finished_normally:
+            elapsed = time.monotonic() - started
+            print(
+                "[INFO] SFYG control loop exited normally: "
+                f"elapsed={elapsed:.3f}s, "
+                f"trajectory_completed={trajectory_completed}; "
+                "native SDK teardown follows",
+                flush=True,
+            )
+        return finished_normally

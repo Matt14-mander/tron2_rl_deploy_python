@@ -204,6 +204,18 @@ export ROBOT_TYPE=SFYG_TRON2A
 python3 main.py 127.0.0.1 --ocs2-trajectory /path/to/trajectory.csv --start-controller
 ```
 
+离线回放会分别打印轨迹开始、轨迹完成并保持终点、控制循环正常结束的日志。
+`--duration` 从控制循环启动时计时，包含 `--ocs2-start-delay` 和终点保持时间；
+看到轨迹完成日志不等于进程已正常退出。结束时控制器发送零位置刚度、保留阻尼的命令，
+因此控制器退出后不要继续用仿真姿态判断行走稳定性。
+
+若本机 MuJoCo 的有界测试在打印“control loop exited normally”和
+“Python SDK teardown begins”后仍发生段错误，可对照使用
+`--sim-sdk-exit-workaround`。该选项只允许 `SFYG_TRON2A`、`127.0.0.1` 和
+正数 `--duration`，在发送最终阻尼命令后跳过 Python/原生 SDK 析构；
+不适用于真机，也不代表已修复 SDK 内部问题。需要原生崩溃线索时不要启用该选项：
+本机 SFYG 回放默认开启 `faulthandler`，可在段错误时打印 Python 线程栈。
+
 控制器以500Hz发布18维带关节名的 `RobotCmd`，每10周期以50Hz更新encoder、policy
 和OCS2采样。未加 `--start-controller` 时仅安全保持；不提供轨迹时，控制器使用
 `--base-command VX VY WZ` 的固定速度命令及零future wrench。速度命令范围为

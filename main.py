@@ -1,6 +1,8 @@
 import argparse
+import faulthandler
 import os
 import sys
+import time
 
 import controllers
 
@@ -40,6 +42,8 @@ if __name__ == '__main__':
                         help="SFYG velocity command without OCS2 (m/s, m/s, rad/s)")
     parser.add_argument("--duration", type=float, default=0.0,
                         help="exit after N seconds; 0 runs until interrupted")
+    parser.add_argument("--sim-sdk-exit-workaround", action="store_true",
+                        help="SFYG local sim only: bypass native SDK teardown after a bounded run")
     args = parser.parse_args()
 
     # Get the robot type from the environment variable
@@ -65,6 +69,12 @@ if __name__ == '__main__':
         parser.error("arm test is SFYG_TRON2A sim2sim-only (robot_ip must be 127.0.0.1)")
     if arm_test_requested and (args.ocs2_trajectory is not None or not args.start_controller):
         parser.error("arm test requires --start-controller and cannot replay OCS2")
+    if args.sim_sdk_exit_workaround and (
+        robot_type != "SFYG_TRON2A" or args.robot_ip != "127.0.0.1"
+        or not 0.0 < args.duration < float("inf")
+    ):
+        parser.error("--sim-sdk-exit-workaround requires SFYG_TRON2A, "
+                     "127.0.0.1 and a positive finite --duration")
 
     # DA-SF uses the Centaur SDK for motion, IMU, and joystick channels.
     if robot_type == "DASF_TRON2A":
@@ -91,6 +101,9 @@ if __name__ == '__main__':
         controller = controllers.SolefootController(model_dir, robot, robot_type, start_controller, use_pygame_joystick=use_pygame_joystick)
         controller.run()
     elif robot_type == "SFYG_TRON2A":
+        if args.robot_ip == "127.0.0.1":
+            # Show Python callback stacks if the native SDK aborts on shutdown.
+            faulthandler.enable()
         controller = controllers.SFYGController(
             model_dir,
             robot,
@@ -109,7 +122,21 @@ if __name__ == '__main__':
             arm_test_move_duration=args.arm_test_move_duration,
             arm_test_hold_duration=args.arm_test_hold_duration,
         )
-        controller.run(duration=args.duration)
+        completed = controller.run(duration=args.duration)
+        if args.sim_sdk_exit_workaround:
+            # The SDK wrapper exposes no close/unsubscribe API. On local MuJoCo
+            # only, skip Python/native destructors after the controller's final
+            # damping command; the simulator uses the same bounded workaround.
+            print(
+                "[INFO] SFYG local sim: bypassing native SDK teardown "
+                f"(control_loop_completed={completed})",
+                flush=True,
+            )
+            sys.stdout.flush()
+            sys.stderr.flush()
+            time.sleep(0.1)
+            os._exit(0 if completed else 130)
+        print("[INFO] SFYG controller returned; Python SDK teardown begins", flush=True)
     elif robot_type == "WF_TRON2A":
         controller = controllers.WheelfootController(model_dir, robot, robot_type, start_controller, use_pygame_joystick=use_pygame_joystick)
         controller.run()
