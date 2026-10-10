@@ -22,6 +22,15 @@ if __name__ == '__main__':
                         help="SFYG diagnostic: replay base command and wrench, hold arm")
     parser.add_argument("--ocs2-zero-wrench", action="store_true",
                         help="SFYG diagnostic: replay base command and arm, zero policy wrench")
+    parser.add_argument("--safe-walk-command", nargs=3, type=float, default=None,
+                        metavar=("VX", "VY", "WZ"),
+                        help="SFYG OCS2: nonzero low-speed gait verified stable in MuJoCo; required unless terminal command is supplied")
+    parser.add_argument("--sim-support-port", type=int, default=None,
+                        help="SFYG sim-only: MuJoCo support telemetry UDP port")
+    parser.add_argument("--sim-pd-stand", action="store_true",
+                        help="SFYG sim-only EXPERIMENT: guarded fixed-PD stand; requires support telemetry")
+    parser.add_argument("--sim-resume-after", type=float, default=None,
+                        help="SFYG sim-only: seconds in PD stand before prewarmed policy resumes")
     parser.add_argument("--arm-test-joint", choices=tuple(f"arm{i}" for i in range(1, 7)),
                         help="SFYG sim2sim: move one arm joint out and back")
     parser.add_argument("--arm-test-delta", type=float,
@@ -75,6 +84,12 @@ if __name__ == '__main__':
     ):
         parser.error("--sim-sdk-exit-workaround requires SFYG_TRON2A, "
                      "127.0.0.1 and a positive finite --duration")
+    if (args.sim_support_port is not None or args.sim_pd_stand
+            or args.sim_resume_after is not None) and (
+            robot_type != "SFYG_TRON2A" or args.robot_ip != "127.0.0.1"):
+        parser.error("support telemetry and PD stand are SFYG local MuJoCo-only")
+    if args.safe_walk_command is not None and robot_type != "SFYG_TRON2A":
+        parser.error("--safe-walk-command is SFYG-only")
 
     # DA-SF uses the Centaur SDK for motion, IMU, and joystick channels.
     if robot_type == "DASF_TRON2A":
@@ -121,6 +136,10 @@ if __name__ == '__main__':
             arm_test_start_delay=args.arm_test_start_delay,
             arm_test_move_duration=args.arm_test_move_duration,
             arm_test_hold_duration=args.arm_test_hold_duration,
+            safe_walk_command=args.safe_walk_command,
+            sim_support_port=args.sim_support_port,
+            sim_pd_stand=args.sim_pd_stand,
+            sim_resume_after=args.sim_resume_after,
         )
         completed = controller.run(duration=args.duration)
         if args.sim_sdk_exit_workaround:

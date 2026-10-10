@@ -23,6 +23,8 @@ from .sfyg_contract import (
     compose_policy_input,
     projected_gravity_from_wxyz,
 )
+from .sfyg_state_machine import SafeGaitStateMachine, with_base_command
+from .sfyg_support_telemetry import SimSupportReceiver
 
 
 class SFYGController:
@@ -50,6 +52,10 @@ class SFYGController:
         arm_test_start_delay=3.0,
         arm_test_move_duration=2.0,
         arm_test_hold_duration=1.0,
+        safe_walk_command=None,
+        sim_support_port=None,
+        sim_pd_stand=False,
+        sim_resume_after=None,
     ):
         if ort is None:
             raise RuntimeError("onnxruntime is required: pip install onnxruntime")
@@ -93,6 +99,25 @@ class SFYGController:
             )
         if self.trajectory is not None and np.any(self.base_command):
             raise ValueError("--base-command cannot be combined with --ocs2-trajectory")
+        if self.trajectory is None and (safe_walk_command is not None or sim_support_port is not None):
+            raise ValueError("safe gait and support telemetry options require --ocs2-trajectory")
+        if safe_walk_command is None and self.trajectory is not None:
+            safe_walk_command = ocs2_terminal_command
+        if self.trajectory is not None and safe_walk_command is None:
+            raise ValueError("OCS2 replay requires --safe-walk-command (verified nonzero MuJoCo gait)")
+        if sim_pd_stand and (sim_support_port is None or self.trajectory is None):
+            raise ValueError("sim PD stand requires OCS2 replay and --sim-support-port")
+        if sim_support_port is not None and not 1024 <= int(sim_support_port) <= 65535:
+            raise ValueError("--sim-support-port must be between 1024 and 65535")
+        if sim_resume_after is not None and (not sim_pd_stand or sim_resume_after < 0.3):
+            raise ValueError("--sim-resume-after requires --sim-pd-stand and at least 0.3 s of policy history")
+        self.gait_guard = (SafeGaitStateMachine(safe_walk_command, allow_pd_stand=sim_pd_stand)
+                           if self.trajectory is not None else None)
+        self.support_receiver = (SimSupportReceiver(sim_support_port)
+                                 if sim_support_port is not None else None)
+        self.sim_resume_after = sim_resume_after
+        self._stand_started = None
+        self._resume_latched = False
         self.ocs2_start_delay = float(ocs2_start_delay)
         if not np.isfinite(self.ocs2_start_delay) or self.ocs2_start_delay < 0.0:
             raise ValueError("--ocs2-start-delay must be finite and non-negative")
@@ -164,6 +189,8 @@ class SFYGController:
                 f"hold_arm={self.ocs2_hold_arm}, "
                 f"zero_wrench={self.ocs2_zero_wrench}"
             )
+            print(f"Safe gait: verified floor={self.gait_guard.stable_command.tolist()}, "
+                  f"experimental_PD_stand={sim_pd_stand}")
 
     def _load_session(self, filename):
         """Load an ONNX model with one CPU inference thread per session."""
@@ -356,6 +383,11 @@ class SFYGController:
             wrench_prediction=np.zeros((5, 6)),
         )
 
+    def notify_ocs2_timeout(self):
+        """Online OCS2 integration hook: keep walking toward the verified floor."""
+        if self.gait_guard is not None:
+            self.gait_guard.solver_timeout()
+
     def _publish_policy_targets(self, targets, solution):
         """Combine leg position targets with OCS2 arm velocity and effort."""
         dq = np.zeros(18)
@@ -383,6 +415,8 @@ class SFYGController:
             last_arm_test_phase = None
             arm_test_baseline_error = None
             last_trajectory_phase = None
+            last_gait_mode = "WALK"
+            policy_weight = 1.0
             while duration <= 0.0 or time.monotonic() - started < duration:
                 q, dq, quaternion, gyro = self._snapshot()
                 # Inference runs at the policy rate; commands publish every tick.
@@ -476,6 +510,39 @@ class SFYGController:
                                     flush=True,
                                 )
                             last_trajectory_phase = trajectory_phase
+                    if getattr(self, "gait_guard", None) is not None:
+                        tilt = np.arccos(np.clip(
+                            -projected_gravity_from_wxyz(quaternion)[2], -1.0, 1.0
+                        ))
+                        support = (self.support_receiver.poll()
+                                   if self.support_receiver is not None else None)
+                        resume = (not self._resume_latched
+                                  and self._stand_started is not None
+                                  and self.sim_resume_after is not None
+                                  and elapsed - self._stand_started >= self.sim_resume_after)
+                        requested_command = (self.gait_guard.stable_command
+                                             if self._resume_latched else last_solution.base_command)
+                        leg_ready = (np.max(np.abs(q[:10] - self.config.default_q[:10])) <= 0.25
+                                     and np.max(np.abs(dq[:10])) <= 0.5)
+                        arm_ready = (np.max(np.abs(dq[10:16])) <= 0.2
+                                     and np.max(np.abs(q[10:16] - last_solution.arm_position)) <= 0.2
+                                     and np.max(np.abs(last_solution.arm_velocity)) <= 0.05)
+                        command, mode, policy_weight = self.gait_guard.update(
+                            requested_command, support, tilt, gyro,
+                            time.monotonic(), resume=resume,
+                            leg_ready=leg_ready, arm_ready=arm_ready,
+                        )
+                        if resume:
+                            self._resume_latched = True
+                        last_solution = with_base_command(last_solution, command)
+                        if mode != last_gait_mode:
+                            print(f"[INFO] SFYG gait: {last_gait_mode} -> {mode}; "
+                                  f"command={np.round(command, 3).tolist()}", flush=True)
+                            if mode == "STAND":
+                                self._stand_started = elapsed
+                                self._history_initialized = False
+                                self.last_action.fill(0.0)
+                            last_gait_mode = mode
                     proprio = build_proprio_observation(
                         self.config,
                         q,
@@ -486,10 +553,17 @@ class SFYGController:
                         last_solution.base_command,
                         elapsed,
                     )
-                    self.last_action = self._infer(proprio, last_solution)
+                    inferred_action = self._infer(proprio, last_solution)
+                    if getattr(self, "gait_guard", None) is not None and self.gait_guard.mode == "STAND":
+                        # Continue filling policy history from actual standing state,
+                        # but never publish a leg-policy target in PD stand.
+                        self.last_action.fill(0.0)
+                    else:
+                        # The previous-action observation must match the
+                        # *published* blended leg target during handover.
+                        self.last_action = inferred_action * policy_weight
                     last_targets = compose_joint_targets(
-                        self.config, self.last_action, last_solution
-                    )
+                        self.config, self.last_action, last_solution)
                 self._publish_policy_targets(last_targets, last_solution)
                 loop_count += 1
                 next_tick += control_period
@@ -500,6 +574,8 @@ class SFYGController:
         except KeyboardInterrupt:
             print("SFYG controller interrupted")
         finally:
+            if getattr(self, "support_receiver", None) is not None:
+                self.support_receiver.close()
             # Release position stiffness while preserving damping on shutdown.
             try:
                 q, _, _, _ = self._snapshot()
