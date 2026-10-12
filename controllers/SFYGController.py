@@ -4,6 +4,7 @@
 import copy
 import os
 import time
+import threading
 
 import numpy as np
 
@@ -56,6 +57,8 @@ class SFYGController:
         sim_support_port=None,
         sim_pd_stand=False,
         sim_resume_after=None,
+        intent_model_dir=None,
+        intent_log=None,
     ):
         if ort is None:
             raise RuntimeError("onnxruntime is required: pip install onnxruntime")
@@ -143,11 +146,20 @@ class SFYGController:
         self.encoder_session = self._load_session(self.config.encoder_file)
         self.policy_session = self._load_session(self.config.policy_file)
         self._validate_model_contract()
+        self.intent_observer = None
+        self._previous_arm_target = None
+        if intent_model_dir is not None:
+            if not intent_log:
+                raise ValueError("Intent observation requires --intent-log (new JSONL file)")
+            from .sfyg_intent import IntentObserver
+            self.intent_observer = IntentObserver(intent_model_dir, intent_log)
+            print("Intent: observation only, payload-local Fx/Fy/Mz; OCS2 wrench unchanged")
 
         # SDK callbacks update the latest joint state and IMU sample.
         from limxsdk import datatypes
 
         self._datatypes = datatypes
+        self._state_lock = threading.Lock()
         self.state = datatypes.RobotState()
         self.imu = datatypes.ImuData()
         self._state_stamp = None
@@ -241,9 +253,10 @@ class SFYGController:
         copied = copy.deepcopy(state)
         copied.q = q.tolist()
         copied.dq = dq.tolist()
-        self.state = copied
-        self._state_stamp = time.monotonic()
-        self._state_count += 1
+        with self._state_lock:
+            self.state = copied
+            self._state_stamp = time.monotonic()
+            self._state_count += 1
 
     def _ordered_state(self, values, names):
         """Reorder named SDK joints to the 18-joint SFYG command layout."""
@@ -268,19 +281,24 @@ class SFYGController:
 
     def _snapshot(self):
         """Return fresh copies of the joint and IMU values for one control tick."""
+        with self._state_lock:
+            state = self.state
+            state_stamp = self._state_stamp
+            self._intent_snapshot_count = self._state_count
+            self._intent_snapshot_stamp = state_stamp
         now = time.monotonic()
-        if self._state_stamp is None or self._imu_stamp is None:
+        if state_stamp is None or self._imu_stamp is None:
             raise RuntimeError(
                 f"waiting for SFYG streams: state={self._state_count}, imu={self._imu_count}, "
                 f"last_error={self._state_error}"
             )
-        if now - self._state_stamp > self.config.state_timeout:
+        if now - state_stamp > self.config.state_timeout:
             raise RuntimeError("SFYG RobotState is stale")
         if now - self._imu_stamp > self.config.state_timeout:
             raise RuntimeError("SFYG IMU is stale")
         return (
-            np.asarray(self.state.q, dtype=np.float64),
-            np.asarray(self.state.dq, dtype=np.float64),
+            np.asarray(state.q, dtype=np.float64),
+            np.asarray(state.dq, dtype=np.float64),
             np.asarray(self.imu.quat[:4], dtype=np.float64),
             np.asarray(self.imu.gyro[:3], dtype=np.float64),
         )
@@ -299,6 +317,7 @@ class SFYGController:
 
     def _publish(self, q, dq=None, tau=None, kp=None, kd=None):
         self.robot.publishRobotCmd(self._make_command(q, dq, tau, kp, kd))
+        self._previous_arm_target = np.asarray(q, dtype=float)[10:16].copy()
 
     def _wait_for_state(self):
         """Wait for both state streams before the first position command."""
@@ -422,6 +441,10 @@ class SFYGController:
                 # Inference runs at the policy rate; commands publish every tick.
                 if self.start_controller and loop_count % self.config.decimation == 0:
                     elapsed = time.monotonic() - started
+                    if getattr(self, "intent_observer", None) is not None:
+                        self.intent_observer.update(
+                            time.monotonic(), self._intent_snapshot_count, self._intent_snapshot_stamp,
+                            q, dq, self._previous_arm_target, last_solution)
                     if self.arm_test is not None:
                         phase = self.arm_test.phase(elapsed)
                         arm_error = q[10:16] - last_targets[10:16]
@@ -574,6 +597,8 @@ class SFYGController:
         except KeyboardInterrupt:
             print("SFYG controller interrupted")
         finally:
+            if getattr(self, "intent_observer", None) is not None:
+                self.intent_observer.close()
             if getattr(self, "support_receiver", None) is not None:
                 self.support_receiver.close()
             # Release position stiffness while preserving damping on shutdown.

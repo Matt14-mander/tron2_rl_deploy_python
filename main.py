@@ -53,6 +53,8 @@ if __name__ == '__main__':
                         help="exit after N seconds; 0 runs until interrupted")
     parser.add_argument("--sim-sdk-exit-workaround", action="store_true",
                         help="SFYG local sim only: bypass native SDK teardown after a bounded run")
+    parser.add_argument("--intent-model-dir", help="SFYG local sim: PAINT TorchScript model directory")
+    parser.add_argument("--intent-log", help="SFYG local sim: new observation JSONL path")
     args = parser.parse_args()
 
     # Get the robot type from the environment variable
@@ -68,6 +70,12 @@ if __name__ == '__main__':
     if robot_type not in ("SF_TRON2A", "SFYG_TRON2A", "WF_TRON2A", "DASF_TRON2A"):
         print(f"\033[31mError: unsupported ROBOT_TYPE='{robot_type}'\033[0m")
         sys.exit(1)
+    if args.intent_model_dir is not None or args.intent_log is not None:
+        if (robot_type != "SFYG_TRON2A" or args.robot_ip != "127.0.0.1"
+                or not args.intent_model_dir or not args.intent_log
+                or not args.start_controller):
+            parser.error("intent observation requires SFYG local sim, --start-controller, "
+                         "--intent-model-dir and --intent-log")
     single_arm_test = args.arm_test_joint is not None or args.arm_test_delta is not None
     arm_test_requested = single_arm_test or args.arm_test_offsets is not None
     if single_arm_test and (args.arm_test_joint is None or args.arm_test_delta is None):
@@ -140,6 +148,8 @@ if __name__ == '__main__':
             sim_support_port=args.sim_support_port,
             sim_pd_stand=args.sim_pd_stand,
             sim_resume_after=args.sim_resume_after,
+            intent_model_dir=args.intent_model_dir,
+            intent_log=args.intent_log,
         )
         completed = controller.run(duration=args.duration)
         if args.sim_sdk_exit_workaround:
