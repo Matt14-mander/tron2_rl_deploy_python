@@ -2,6 +2,9 @@ import importlib.util
 import json
 import tempfile
 import unittest
+import threading
+import io
+from unittest.mock import patch
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,6 +18,47 @@ spec.loader.exec_module(module)
 
 
 class IntentTest(unittest.TestCase):
+    def test_clock_keeps_phase_and_skips_missing_frames(self):
+        clock = module.ObservationClock(0.)
+        self.assertTrue(clock.due(0.))
+        self.assertFalse(clock.due(.019))
+        self.assertTrue(clock.due(.023))
+        self.assertAlmostEqual(clock.next_time, .04)
+        self.assertTrue(clock.due(.091))
+        self.assertAlmostEqual(clock.next_time, .1)
+        self.assertFalse(clock.due(.092))
+
+    def test_async_worker_copies_telemetry_and_reports_overflow(self):
+        entered, release = threading.Event(), threading.Event()
+        class FakeObserver:
+            def __init__(self, *_):
+                self.items = []
+                self.log = io.StringIO()
+                self.closed = False
+            def update(self, *item):
+                entered.set()
+                if not release.wait(2):
+                    raise RuntimeError("test worker timeout")
+                self.items.append(item)
+            def close(self):
+                self.closed = True
+        with patch.object(module, "IntentObserver", FakeObserver):
+            observer = module.AsyncIntentObserver("unused", "unused")
+            q = np.zeros(18)
+            observer.update(0, 1, 0, q, q, np.zeros(6), None)
+            self.assertTrue(entered.wait(2))
+            q.fill(5)
+            for t in [.02, .04, .06]:
+                observer.update(t, 2, t, q, q, np.zeros(6), None)
+            self.assertEqual(observer.dropped, 1)
+            release.set()
+            observer.close()
+            self.assertFalse(observer.thread.is_alive())
+            self.assertTrue(observer.observer.closed)
+            self.assertEqual(len(observer.observer.items), 3)
+            self.assertTrue(np.all(observer.observer.items[0][3] == 0))
+            self.assertIn('"queue_dropped_samples": 1', observer.observer.log.getvalue())
+
     def test_history_previous_target_and_discontinuities(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

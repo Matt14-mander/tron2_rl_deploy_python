@@ -1,6 +1,9 @@
 """Observation-only PAINT adapter; never supplies policy wrench or commands."""
 
 import json
+import copy
+import queue
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -86,3 +89,63 @@ class IntentObserver:
 
     def close(self):
         self.log.close()
+
+
+class ObservationClock:
+    """Keep sampling phase after a late tick; never fabricate catch-up frames."""
+    def __init__(self, start, period=.02):
+        self.next_time = start
+        self.period = period
+
+    def due(self, now):
+        if now < self.next_time:
+            return False
+        missed = int((now - self.next_time) // self.period)
+        self.next_time += (missed + 1) * self.period
+        return True
+
+
+class AsyncIntentObserver:
+    """Bounded FIFO: copy telemetry in control thread, infer/write in worker."""
+    def __init__(self, model_dir, log_path):
+        self.observer = IntentObserver(model_dir, log_path)
+        self.queue = queue.Queue(maxsize=2)
+        self.stop = threading.Event()
+        self.error = None
+        self.dropped = 0
+        self.thread = threading.Thread(target=self._run, name="intent-observer", daemon=True)
+        self.thread.start()
+
+    def update(self, now, state_count, state_stamp, q, dq, target, solution):
+        if self.error is not None:
+            raise RuntimeError("Intent observer worker failed") from self.error
+        item = (now, state_count, state_stamp, q.copy(), dq.copy(),
+                None if target is None else target.copy(), copy.deepcopy(solution))
+        try:
+            self.queue.put_nowait(item)
+        except queue.Full:
+            # The next accepted sample retains its actual timestamp, so the
+            # existing gap check breaks history across dropped samples.
+            self.dropped += 1
+
+    def _run(self):
+        try:
+            while not self.stop.is_set() or not self.queue.empty():
+                try:
+                    item = self.queue.get(timeout=.05)
+                except queue.Empty:
+                    continue
+                self.observer.update(*item)
+            self.observer.log.write(json.dumps({"type": "observer_summary",
+                "queue_dropped_samples": self.dropped}) + "\n")
+        except Exception as error:
+            self.error = error
+            print(f"[ERROR] Intent worker: {error}", flush=True)
+        finally:
+            self.observer.close()
+
+    def close(self):
+        self.stop.set()
+        self.thread.join(timeout=5.)
+        print(f"[INFO] Intent worker: dropped={self.dropped}, "
+              f"stopped={not self.thread.is_alive()}, error={self.error}", flush=True)

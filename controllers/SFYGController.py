@@ -151,8 +151,8 @@ class SFYGController:
         if intent_model_dir is not None:
             if not intent_log:
                 raise ValueError("Intent observation requires --intent-log (new JSONL file)")
-            from .sfyg_intent import IntentObserver
-            self.intent_observer = IntentObserver(intent_model_dir, intent_log)
+            from .sfyg_intent import AsyncIntentObserver
+            self.intent_observer = AsyncIntentObserver(intent_model_dir, intent_log)
             print("Intent: observation only, payload-local Fx/Fy/Mz; OCS2 wrench unchanged")
 
         # SDK callbacks update the latest joint state and IMU sample.
@@ -426,6 +426,10 @@ class SFYGController:
             if not self.start_controller:
                 print("SFYG is holding the default pose; use --start-controller to enable balance policy")
             started = time.monotonic()
+            intent_clock = None
+            if getattr(self, "intent_observer", None) is not None:
+                from .sfyg_intent import ObservationClock
+                intent_clock = ObservationClock(started)
             next_tick = started
             control_period = 1.0 / self.config.loop_frequency
             loop_count = 0
@@ -438,13 +442,14 @@ class SFYGController:
             policy_weight = 1.0
             while duration <= 0.0 or time.monotonic() - started < duration:
                 q, dq, quaternion, gyro = self._snapshot()
+                observation_time = time.monotonic()
+                if intent_clock is not None and intent_clock.due(observation_time):
+                    self.intent_observer.update(
+                        observation_time, self._intent_snapshot_count, self._intent_snapshot_stamp,
+                        q, dq, self._previous_arm_target, last_solution)
                 # Inference runs at the policy rate; commands publish every tick.
                 if self.start_controller and loop_count % self.config.decimation == 0:
                     elapsed = time.monotonic() - started
-                    if getattr(self, "intent_observer", None) is not None:
-                        self.intent_observer.update(
-                            time.monotonic(), self._intent_snapshot_count, self._intent_snapshot_stamp,
-                            q, dq, self._previous_arm_target, last_solution)
                     if self.arm_test is not None:
                         phase = self.arm_test.phase(elapsed)
                         arm_error = q[10:16] - last_targets[10:16]
@@ -597,8 +602,6 @@ class SFYGController:
         except KeyboardInterrupt:
             print("SFYG controller interrupted")
         finally:
-            if getattr(self, "intent_observer", None) is not None:
-                self.intent_observer.close()
             if getattr(self, "support_receiver", None) is not None:
                 self.support_receiver.close()
             # Release position stiffness while preserving damping on shutdown.
@@ -608,6 +611,8 @@ class SFYGController:
                 print("[INFO] SFYG shutdown: damping command published", flush=True)
             except RuntimeError:
                 print("[WARN] SFYG shutdown: no fresh state for damping command", flush=True)
+            if getattr(self, "intent_observer", None) is not None:
+                self.intent_observer.close()
         if finished_normally:
             elapsed = time.monotonic() - started
             print(
